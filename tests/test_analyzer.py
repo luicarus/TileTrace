@@ -13,6 +13,17 @@ def named(result, name):
 
 
 class AnalyzerTests(unittest.TestCase):
+    def test_default_source_ranges_survive_parameter_overrides(self):
+        source = ('import triton\nimport triton.language as tl\n@triton.jit\n'
+                  'def demo(\n    A: tl.constexpr=4,\n    B: tl.constexpr=\n        4 * 2\n):\n'
+                  '    y = tl.arange(0, B)\n')
+        for parameters in ({}, {'B': 16}):
+            result = analyze(source, parameters=parameters)
+            parameter = named(result, 'B')
+            self.assertEqual(parameter['attrs']['default_source'],
+                             {'start_line': 7, 'start_col': 8, 'end_line': 7, 'end_col': 13})
+            self.assertEqual(named(result, 'y')['shape'], [parameters.get('B', 8)])
+
     def test_broadcast_and_immediate_coordinates(self):
         result = analyze(kernel('a = tl.zeros((2, 1), tl.float32)\nb = tl.zeros((1, 4), tl.float32)\nc = a + b'))
         node = named(result, 'c')

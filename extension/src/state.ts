@@ -1,19 +1,23 @@
 import {Analysis,Node,Options} from './protocol';
-export function selectAt(nodes:Node[],line:number,col:number,previous?:string,source?:string):string|undefined {
+import {operationId} from '../media/operations';
+export function selectAt(nodes:Node[],line:number,col:number,previous?:string,source?:string,showAll=false):string|undefined {
+  const resolve=(id?:string)=>showAll?id:operationId(nodes,id,previous);
   const contains=(n:Node)=> (line>n.source.start_line || line===n.source.start_line&&col>=n.source.start_col) && (line<n.source.end_line||line===n.source.end_line&&col<n.source.end_col);
   const span=(n:Node)=>(n.source.end_line-n.source.start_line)*1000000+n.source.end_col-n.source.start_col;
   const expression=nodes.filter(contains).sort((a,b)=>span(a)-span(b))[0];
-  if(expression)return expression.id;
+  if(expression)return resolve(expression.id);
+  const declaration=nodes.find(n=>n.op==='parameter'&&n.attrs.default_source&&contains({...n,source:n.attrs.default_source as Node['source']}));
+  if(declaration)return resolve(declaration.id);
   if(source){
     const text=source.split(/\r?\n/)[line-1]??'';
     for(const node of nodes){
       if(node.source.start_line!==line)continue;
       const prefix=text.slice(0,node.source.start_col);
       const assignment=/^(\s*)([\p{L}_][\p{L}\p{N}_]*)(?:\s*:\s*[^=]+)?\s*=\s*$/u.exec(prefix);
-      if(assignment&&assignment[2]===node.name&&col>=assignment[1].length&&col<assignment[1].length+assignment[2].length)return node.id;
+      if(assignment&&assignment[2]===node.name&&col>=assignment[1].length&&col<assignment[1].length+assignment[2].length)return resolve(node.id);
     }
   }
-  return nodes.some(n=>n.id===previous)?previous:nodes[0]?.id;
+  return resolve(nodes.some(n=>n.id===previous)?previous:nodes[0]?.id);
 }
 interface Token {document:string;version:number;generation:number; selected?:string;}
 export class SelectionState {
@@ -25,10 +29,11 @@ export class SelectionState {
     return {document,version,generation:this.generation};
   }
   current(token:Token):boolean {return token.document===this.document&&token.version===this.version&&token.generation===this.generation;}
-  accept(token:Token,analysis:Analysis):boolean {
+  accept(token:Token,analysis:Analysis,showAll=false):boolean {
     if(!this.current(token)||analysis.document_id!==this.document||analysis.version!==this.version) return false;
     this.analysis=analysis;this.stale=false;
-    this.selected=analysis.nodes.find(n=>n.name===this.previous?.name&&n.source.start_line===this.previous?.source.start_line)?.id??analysis.nodes[0]?.id;
+    const candidate=analysis.nodes.find(n=>n.name===this.previous?.name&&n.source.start_line===this.previous?.source.start_line)?.id??analysis.nodes[0]?.id;
+    this.selected=showAll?candidate:operationId(analysis.nodes,candidate);
     return true;
   }
   select(id:string):boolean {if(this.stale||!this.analysis?.nodes.some(n=>n.id===id))return false;this.selected=id;return true;}

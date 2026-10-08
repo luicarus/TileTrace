@@ -6,6 +6,7 @@ import {WorkerClient,WorkerPair} from './worker';
 import {workerLaunchOptions} from './launch';
 import {SelectionState,selectAt,validateParameters} from './state';
 import {Analysis,Inspection,Options,Node} from './protocol';
+import {operationId,operationNodes} from '../media/operations';
 
 function relevant(document:vscode.TextDocument):boolean {
   if(document.uri.scheme!=='file'||document.languageId!=='python'||!document.fileName.endsWith('.py'))return false;
@@ -33,6 +34,7 @@ class Controller implements vscode.Disposable {
   private session=randomUUID();private state=new SelectionState();private output=vscode.window.createOutputChannel('TileTrace');
   private timer?:NodeJS.Timeout;private queue:Promise<void>=Promise.resolve();private inspectionSerial=0;private error='';private disposed=false;
   private options=new Map<string,Options>();
+  private showAllNodes=false;
   constructor(private context:vscode.ExtensionContext){}
   private get config():vscode.WorkspaceConfiguration {return vscode.workspace.getConfiguration('tiletrace',this.editor?.document.uri);}
   private currentOptions():Options {return this.options.get(this.state.document)??{parameters:{},input_shapes:{},program_ids:[]};}
@@ -64,7 +66,8 @@ class Controller implements vscode.Disposable {
     const nonce=randomBytes(18).toString('base64');const webview=this.panel.webview;
     const css=webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri,'media','viewer.css'));
     const js=webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri,'media','viewer.js'));
-    webview.html=`<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"><title>TileTrace 变换</title></head><body><main id="app"></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
+    const operations=webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri,'media','operations.js'));
+    webview.html=`<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"><title>TileTrace 变换</title></head><body><main id="app"></main><script nonce="${nonce}" src="${operations}"></script><script nonce="${nonce}" src="${js}"></script></body></html>`;
     this.panel.onDidDispose(()=>{this.panel=undefined;this.detach('面板已关闭。');},null,this.context.subscriptions);
     this.panel.webview.onDidReceiveMessage(message=>{void this.message(message).catch(error=>this.fail(error));},null,this.context.subscriptions);
   }
@@ -91,13 +94,13 @@ class Controller implements vscode.Disposable {
   private publish():void {
     if(!this.contextWorker||!this.state.document)return;
     const worker=this.contextWorker;const options=this.currentOptions();
-    const payload={session_id:this.session,context:{document_id:this.state.document,version:this.state.version,stale:this.state.stale,...options,...(!this.state.stale?{analysis:this.state.analysis,selected_node_id:this.state.selected}: {})}};
+    const payload={session_id:this.session,context:{document_id:this.state.document,version:this.state.version,stale:this.state.stale,...options,...(!this.state.stale?{analysis:this.state.analysis,selected_node_id:this.state.selected,view_mode:this.showAllNodes?'all':'tensor_steps',visible_node_ids:operationNodes(this.state.analysis?.nodes??[],this.showAllNodes).map(node=>node.id)}: {})}};
     this.queue=this.queue.catch(()=>{}).then(async()=>{await worker.request('sync_context',payload);}).catch(error=>{this.output.appendLine(String(error));if(worker===this.contextWorker)this.fail(error);});
   }
   private send():void {
     const expressions:Record<string,string>={};
     if(this.editor&&!this.state.stale)for(const node of this.state.analysis?.nodes??[])expressions[node.id]=this.editor.document.getText(this.range(node));
-    void this.panel?.webview.postMessage({type:'state',state:{analysis:this.state.analysis,selected:this.state.selected,stale:this.state.stale,file:this.editor?.document.fileName??'',version:this.state.version,generation:this.state.generation,error:this.error,session:this.session,expressions,...this.currentOptions()}});
+    void this.panel?.webview.postMessage({type:'state',state:{analysis:this.state.analysis,selected:this.state.selected,show_all:this.showAllNodes,stale:this.state.stale,file:this.editor?.document.fileName??'',version:this.state.version,generation:this.state.generation,error:this.error,session:this.session,expressions,...this.currentOptions()}});
   }
   private schedule(delay=250):void {
     if(!this.editor||!this.panel)return;
@@ -111,8 +114,8 @@ class Controller implements vscode.Disposable {
     const worker=this.worker;const document=this.editor.document;const options=this.currentOptions();const source=document.getText();
     try{
       const analysis=await worker.request<Analysis>('analyze',{source,...options,document_id:token.document,version:token.version});
-      if(worker!==this.worker||document!==this.editor?.document||document.version!==token.version||!this.state.accept(token,analysis))return;
-      const cursor=this.editor.selection.active;const chosen=selectAt(analysis.nodes,cursor.line+1,cursor.character,this.state.selected,source);if(chosen)this.state.select(chosen);
+      if(worker!==this.worker||document!==this.editor?.document||document.version!==token.version||!this.state.accept(token,analysis,this.showAllNodes))return;
+      const cursor=this.editor.selection.active;const chosen=selectAt(analysis.nodes,cursor.line+1,cursor.character,this.state.selected,source,this.showAllNodes);if(chosen)this.state.select(chosen);
       this.send();this.publish();
     }catch(error){if(this.state.current(token)&&worker===this.worker){this.fail(error);this.publish();}}
   }
@@ -123,7 +126,7 @@ class Controller implements vscode.Disposable {
   }
   selection(editor:vscode.TextEditor):void {
     if(editor.document!==this.editor?.document||this.state.stale||!this.state.analysis)return;
-    this.editor=editor;const cursor=editor.selection.active;const id=selectAt(this.state.analysis.nodes,cursor.line+1,cursor.character,this.state.selected,editor.document.getText());
+    this.editor=editor;const cursor=editor.selection.active;const id=selectAt(this.state.analysis.nodes,cursor.line+1,cursor.character,this.state.selected,editor.document.getText(),this.showAllNodes);
     if(id&&id!==this.state.selected){this.state.select(id);this.inspectionSerial++;this.send();this.publish();}
   }
   private range(node:Node):vscode.Range {return new vscode.Range(node.source.start_line-1,node.source.start_col,node.source.end_line-1,node.source.end_col);}
@@ -132,6 +135,14 @@ class Controller implements vscode.Disposable {
     const m=message as Record<string,unknown>;
     if(m.type==='ready'){this.send();return;}
     if(m.type==='copyPrompt'){await this.copyPrompt();return;}
+    if(m.type==='setNodeVisibility'){
+      if(m.generation!==this.state.generation||typeof m.show_all!=='boolean')return;
+      this.showAllNodes=m.show_all;this.inspectionSerial++;
+      const nodes=this.state.analysis?.nodes??[];
+      const id=this.showAllNodes?(this.state.selected??nodes[0]?.id):operationId(nodes,this.state.selected);
+      if(id)this.state.select(id);else this.state.selected=undefined;
+      this.send();this.publish();return;
+    }
     if(m.type==='applyParameters'){
       if(!this.editor||m.generation!==this.state.generation)return;
       const options=validateParameters(m.options);if(options.kernel&&!this.state.analysis?.kernels.includes(options.kernel))throw new Error('请选择分析发现的 kernel。');
@@ -140,7 +151,7 @@ class Controller implements vscode.Disposable {
     if(this.state.stale||!this.state.analysis||m.generation!==this.state.generation)return;
     if(typeof m.node_id!=='string')return;
     const node=this.state.analysis.nodes.find(n=>n.id===m.node_id);if(!node)return;
-    if(m.type==='selectNode'){this.state.select(node.id);this.inspectionSerial++;this.send();this.publish();return;}
+    if(m.type==='selectNode'){const id=this.showAllNodes?node.id:operationId(this.state.analysis.nodes,node.id,this.state.selected);if(id)this.state.select(id);this.inspectionSerial++;this.send();this.publish();return;}
     if(m.type==='revealSource'&&this.editor){const document=await vscode.workspace.openTextDocument(this.editor.document.uri);if(document.uri.toString()!==this.state.document||document.version!==this.state.version)return;const editor=await vscode.window.showTextDocument(document,{viewColumn:this.editor.viewColumn,preserveFocus:false});editor.selection=new vscode.Selection(this.range(node).start,this.range(node).end);editor.revealRange(this.range(node),vscode.TextEditorRevealType.InCenterIfOutsideViewport);return;}
     if(m.type==='inspectIndex'&&node.id===this.state.selected&&this.worker){
       if(typeof m.request_id!=='string'||m.request_id.length<1||m.request_id.length>100)return;
