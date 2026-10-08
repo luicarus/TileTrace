@@ -5,8 +5,6 @@
 分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
 
 > 状态：0.1.0 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
->
-> 建议的仓库 topics：`triton` `gpu-kernel` `visualization` `static-analysis` `mcp` `vscode-extension` `python`
 
 ## 当前功能
 
