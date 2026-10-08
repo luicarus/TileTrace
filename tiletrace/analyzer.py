@@ -732,6 +732,8 @@ def analyze(source: str, kernel: str | None = None, parameters: dict | None = No
     opaque_pointers = engine.pointer_parameters(selected)
     for argument in all_args:
         attrs = {'symbol': argument.arg, 'constexpr': engine.path(argument.annotation) == 'triton.language.constexpr'}
+        if argument.arg in defaults:
+            attrs['default_source'] = engine.range(defaults[argument.arg])
         if argument.arg in opaque_pointers:
             attrs['opaque_pointer'] = True
         value = _UNKNOWN

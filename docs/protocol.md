@@ -32,6 +32,8 @@
 
 源码范围采用 **1 基行号、0 基 UTF-16 列偏移**，与 VS Code 转换时行号减一。节点标识只在对应分析结果内使用；源码或参数变化后应按当前结果重新选择。
 
+有默认值的参数在 attrs.default_source 中记录该表达式的同格式源码范围。此属性用于界面定位参数归属，显式参数覆盖默认值时仍保留；它不改变形状计算或依赖图。
+
 `inspect` 的 origins 指向直接输入，不展开完整的祖先依赖集合。用户可沿操作图继续查看前一步。`status=unavailable` 时不显示看似精确的来源连线。
 
 ## 会话
@@ -39,6 +41,8 @@
 上下文以独立 session_id 存储在工作区 `.tiletrace/`。VS Code 扩展与 MCP 进程必须配置同一个目录。会话标识只允许字母、数字、下划线和连字符，长度 1–80。
 
 只在界面接受结果后发布新的非过期上下文。上下文至少包含 document_id、version 与 stale；有分析结果时添加 analysis、selected_node_id、parameters、input_shapes 和 program_ids。
+
+0.1.1 同时发布 view_mode（tensor_steps 或 all）与 visible_node_ids。analysis 始终为完整图，筛选只作用于界面与当前选择。
 
 界面收到新修改、切换文件、参数更改或分析失败时，不得沿用旧的精确映射。源码范围、文档版本和请求代次共同用于拒绝过期响应。stale=true 的上下文可读取供 agent 获知状态，但 `inspect` 拒绝使用它作精确映射。
 

@@ -12,8 +12,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VSIX = ROOT / "dist/tiletrace-0.1.0.vsix"
-WHEEL = ROOT / "dist/tiletrace-0.1.0-py3-none-any.whl"
+VERSION = json.loads((ROOT / "extension/package.json").read_text(encoding="utf-8"))["version"]
+VSIX = ROOT / f"dist/tiletrace-{VERSION}.vsix"
+WHEEL = ROOT / f"dist/tiletrace-{VERSION}-py3-none-any.whl"
 
 
 @unittest.skipUnless(VSIX.exists(), "Build the VSIX with npm run package in extension/ first")
@@ -23,6 +24,8 @@ class ExtensionDistributionTests(unittest.TestCase):
             names = set(archive.namelist())
             manifest = json.loads(archive.read("extension/package.json"))
             self.assertIn("extension/" + manifest["main"].removeprefix("./"), names)
+            self.assertIn("extension/media/operations.js", names)
+            self.assertNotIn("extension/media/operations.d.ts", names)
             for source in (ROOT / "tiletrace").glob("*.py"):
                 bundled = archive.read("extension/python/tiletrace/" + source.name)
                 self.assertEqual(hashlib.sha256(bundled).hexdigest(),

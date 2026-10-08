@@ -6,6 +6,8 @@
 
 选择 kernel，在“分析参数”中提供 JSON：例如 constexpr `{"BLOCK":8}`、输入形状 `{"x":[2,4]}` 和 program ID `[0]`。输入形状是可选静态信息。查看操作列表、上一步/下一步、代码表达式、输入和输出形状，点击输出格子查询直接输入的来源坐标。选中源码表达式也会同步选中的操作；查看源码按钮跳转至原文件。网格代表逻辑坐标，不代表 GPU 线程、全局内存地址或实际数据值。
 
+默认列表显示关键张量步骤，折叠常量、参数和纯标量索引准备。勾选“显示全部节点”恢复完整列表；代码选择与前后导航跟随该视图。`arange` 的起点、终点、长度显示在“参数与属性”中；张量归约产生的标量以及使用这些结果的计算继续作为步骤和数据输入显示。MCP 接收完整图，同时提供当前 `view_mode` 与 `visible_node_ids`。
+
 每张卡片最多显示 128 个坐标（8 行 × 16 列）；超出范围可用轴起点浏览。rank > 2 使用前缀轴切片，最后两个轴作为网格轴。符号形状显示文字，未支持操作不给出精确映射。映射区标注返回与总计数量、枚举截断、当前网格可见高亮数量，并提供“定位首个来源坐标”。编辑源码或改变参数期间清除网格及旧映射，忽略过期的分析和检查响应。
 
 按钮、下拉框、JSON 输入与轴切片支持键盘操作，并使用 VS Code 主题与焦点颜色。查看诊断可以区分缺少参数、形状不兼容和分析能力限制。无 kernel 节点时显示诊断与补充参数提示。
@@ -35,7 +37,7 @@ npm.cmd test
 npm.cmd run package
 ```
 
-`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.0.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
+`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.1.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
 
 在 VS Code 打开仓库后选择调试配置 **TileTrace Extension** 并按 F5；先在 `extension/` 安装开发依赖。扩展开发宿主中打开 `examples/` 的 Triton 文件。通过 VS Code 扩展面板的 **Install from VSIX…** 手动安装生成的包。
 

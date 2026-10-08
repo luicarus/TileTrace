@@ -55,3 +55,20 @@ test('Controller ignores old inspection errors after another click or closed doc
   assert.equal(h.messages.some(m=>m.state?.error==='closed-query-error'),false);assert.equal(h.messages.some(m=>m.request_id==='third'),false);
  }finally{h.controller.dispose();}
 });
+
+test('Controller keeps default and detailed source selection aligned with the published full graph',async()=>{
+ const demo=require('./operations-fixture.cjs')();const sourceText=fs.readFileSync(path.resolve(__dirname,'../../examples/transforms.py'),'utf8');
+ const h=createController({root:os.tmpdir(),analysisNodes:demo.nodes,sourceText});
+ try {
+  h.controller.activateEditor(h.editor);await until(()=>h.messages.some(m=>m.type==='state'&&!m.state.stale));
+  const latest=()=>h.messages.filter(m=>m.type==='state').at(-1).state;
+  const rows=demo.nodes.find(n=>n.name==='rows');const zero=demo.nodes.find(n=>n.op==='constant'&&n.source.start_line===rows.source.start_line);
+  assert.equal(latest().selected,rows.id);assert.equal(latest().show_all,false);
+  h.editor.selection.active={line:zero.source.start_line-1,character:zero.source.start_col};h.controller.selection(h.editor);assert.equal(latest().selected,rows.id);
+  await h.controller.message({type:'setNodeVisibility',generation:latest().generation+1,show_all:true});assert.equal(latest().show_all,false);
+  await h.controller.message({type:'setNodeVisibility',generation:latest().generation,show_all:true});h.controller.selection(h.editor);assert.equal(latest().selected,zero.id);
+  await h.controller.message({type:'setNodeVisibility',generation:latest().generation,show_all:false});assert.equal(latest().selected,rows.id);
+  await until(()=>{const context=h.calls.filter(c=>c.method==='sync_context').at(-1)?.p.context;return context?.selected_node_id===rows.id&&context.view_mode==='tensor_steps';});
+  const snapshot=h.calls.filter(c=>c.method==='sync_context').at(-1).p.context;assert.equal(snapshot.analysis.nodes.length,16);assert.equal(snapshot.view_mode,'tensor_steps');assert.equal(snapshot.visible_node_ids.length,9);
+ } finally {h.controller.dispose();}
+});

@@ -4,7 +4,7 @@
 
 分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
 
-> 状态：0.1.0 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
+> 状态：0.1.1 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
 >
 > 建议的仓库 topics：`triton` `gpu-kernel` `visualization` `static-analysis` `mcp` `vscode-extension` `python`
 
@@ -15,6 +15,7 @@
 - 支持符号尺寸和缺失参数提示，未知语法提供诊断。
 - VS Code 读取未保存缓冲区、跟随选择和参数变化、反向定位源码。
 - 每个编辑器会话独立同步状态；Codex 通过 MCP 查询，不自动猜测当前文件。
+- 默认只显示关键张量步骤，参数与常量折叠到操作详情；“显示全部节点”可以查看完整分析图。标量归约及依赖归约结果的计算仍然保留。
 
 展示的是逻辑坐标与依赖。它不表示实际数值执行、GPU 线程布局、内存搬运或性能测量。复杂循环、数据相关分支与跨函数调用不在第一版完整分析范围。
 
@@ -24,12 +25,14 @@
 
 ```powershell
 .\scripts\setup.ps1
-code --install-extension .\dist\tiletrace-0.1.0.vsix
+code --install-extension .\dist\tiletrace-0.1.1.vsix --force
 ```
 
 安装后打开本项目的 `examples/transforms.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
 
 选择 `broadcast_demo`，点击 `matrix`，再点击输出网格中的任意坐标，即可观察两个广播输入的对应位置。切换到 `reshape_demo` 查看 reshape 与转置；`softmax_demo` 可补入 `{"N":6}`。
+
+`broadcast_demo` 默认显示 9 个张量步骤，折叠 7 个常量与参数节点。选中 `arange` 时，起点、终点和长度以文字属性展示；点击源码中的边界常量或归约轴会选中所属张量操作。前后导航遵循当前视图，底层完整图仍供 MCP 查询。
 
 输入参数与 `input_shapes` 是 JSON 对象；program IDs 是坐标数组。形状未知时先补充缺失参数。源文件仅被静态读取，不能通过修改示例参数取得执行数值。
 

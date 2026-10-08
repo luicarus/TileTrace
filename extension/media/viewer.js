@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const vscode = acquireVsCodeApi();
+  const {operationNodes, operationId, contextInputs} = TileTraceOperations;
   const root = document.getElementById('app');
   let state = {stale:true,version:0,generation:0};
   let inspection = null;
@@ -25,7 +26,36 @@
   const shapeText = node => node.shape.length ? '['+node.shape.join(', ')+']' : '[] · 标量';
   const coordText = index => '['+index.join(', ')+']';
   function section(title) {const box=el('section',undefined,'section');box.append(el('h2',title));return box;}
-  function selected() {return state.analysis?.nodes.find(node=>node.id===state.selected);}
+  function selected() {
+    const nodes=state.analysis?.nodes??[];
+    const id=state.show_all?state.selected:operationId(nodes,state.selected);
+    return nodes.find(node=>node.id===id);
+  }
+
+  function operationDetails(node, nodes) {
+    const fields=[];
+    const display=value=>value===undefined||value===null?'未知':typeof value==='string'?value:JSON.stringify(value);
+    const scalar=input=>{
+      if(!input)return '未知';
+      if(Object.hasOwn(input.attrs,'value'))return input.op==='constant'?display(input.attrs.value):`${input.name} = ${display(input.attrs.value)}`;
+      return `${input.attrs.symbol||input.name}（符号）`;
+    };
+    const context=contextInputs(node,nodes);
+    if(node.op==='arange') {
+      const inputs=node.inputs.map(id=>nodes.find(n=>n.id===id));
+      fields.push(['起点',inputs[0]?scalar(inputs[0]):display(node.attrs.start)],['终点',inputs[1]?scalar(inputs[1]):display(node.attrs.end)],['长度',display(node.shape[0])]);
+    } else {
+      for(const input of context)fields.push([input.op==='constant'?'常量':input.name,scalar(input)]);
+      for(const [key,label] of [['axes','轴'],['permutation','轴排列'],['keep_dims','保留归约轴'],['can_reorder','允许重排'],['fill_value','静态填充值']]) {
+        if(Object.hasOwn(node.attrs,key))fields.push([label,display(node.attrs[key])]);
+      }
+    }
+    if(!fields.length)return null;
+    const box=el('div',undefined,'operation-details');box.append(el('h2','参数与属性'));
+    const list=el('dl');
+    for(const [label,value] of fields)list.append(el('dt',label),el('dd',value));
+    box.append(list);return box;
+  }
   function draft() {
     const key=state.file||'';
     if(!drafts.has(key)) drafts.set(key,remembered[key] || {
@@ -109,10 +139,12 @@
     if(!inspection){box.append(el('p',outputIndex?`正在查询输出 ${coordText(outputIndex)}…`:'点击输出网格坐标，查看直接输入中的对应位置。','muted'));return box;}
     if(inspection.status!=='exact'){box.append(el('p',`坐标映射不可用：${inspection.message||'符号参数、未知重排或未支持操作无法证明映射。'}`,'notice'));return box;}
     box.append(el('p',`输出 ${coordText(inspection.output_index||[])} → 直接输入坐标`));
+    const current=selected();const folded=new Set(state.show_all||!current?[]:contextInputs(current,state.analysis.nodes).map(input=>input.id));
     for(const origin of inspection.origins){
-      const n=state.analysis.nodes.find(n=>n.id===origin.node_id);const line=el('div',undefined,'origin-description');line.append(el('strong',n?.name||origin.node_id));
+      const n=state.analysis.nodes.find(n=>n.id===origin.node_id);const line=el('div',undefined,'origin-description');line.dataset.originNode=origin.node_id;line.append(el('strong',n?.name||origin.node_id));
       line.append(el('p',origin.indices.slice(0,16).map(coordText).join(' · ')||'无输入坐标','coordinates'));
       line.append(el('p',`返回 ${origin.indices.length} / 总计 ${origin.total}${origin.truncated?' · 来源枚举已截断':''}${origin.indices.length>16?' · 文本只显示前 16 项':''}`,'muted'));
+      if(folded.has(origin.node_id)){line.append(el('p','该标量输入已显示在参数与属性中。','muted'));box.append(line);continue;}
       if(n){const slice=sliceFor(n);const rank=n.shape.length;const visible=origin.indices.filter(index=>{
         if(rank===0)return true;
         if(rank>2&&!slice.prefix.every((v,i)=>v===index[i]))return false;
@@ -139,20 +171,30 @@
     if(analysis.missing_parameters.length)root.append(el('p','待补参数：'+analysis.missing_parameters.join('、'),'notice'));
     if(analysis.diagnostics.length){const box=section('诊断');for(const diagnostic of analysis.diagnostics)box.append(el('p',`${diagnostic.severity} · ${diagnostic.message}`,'diagnostic'));root.append(box);}
     if(!analysis.nodes.length){root.append(el('p','没有可显示的操作。请检查 kernel、语法和诊断，补齐所需参数。','notice'));return;}
-    const browse=section(`操作 · ${analysis.nodes.length}`);const position=analysis.nodes.findIndex(n=>n.id===state.selected);const toolbar=el('div',undefined,'toolbar');
-    const change=delta=>{const node=analysis.nodes[position+delta];if(node)post('selectNode',{node_id:node.id});};
-    const prev=button('← 上一步',()=>change(-1));prev.disabled=position<=0;const next=button('下一步 →',()=>change(1));next.disabled=position<0||position>=analysis.nodes.length-1;toolbar.append(prev,el('span',`${position+1} / ${analysis.nodes.length}`,'muted'),next);browse.append(toolbar);
-    const list=el('div',undefined,'operation-list');for(const node of analysis.nodes){const b=button(`${node.name||node.op} · ${node.op} ${shapeText(node)}`,()=>post('selectNode',{node_id:node.id}),'operation');b.classList.toggle('active',node.id===state.selected);b.setAttribute('aria-current',String(node.id===state.selected));list.append(b);}browse.append(list);root.append(browse);
-    const node=selected();if(!node)return;
-    const operation=section(`${node.name||node.op} · ${node.op}`);operation.append(el('pre',state.expressions?.[node.id]||node.name||node.op,'expression'),button(`查看源码 · 第 ${node.source.start_line} 行`,()=>post('revealSource',{node_id:node.id})));root.append(operation);
-    const flow=el('div',undefined,'flow');const inputs=section('输入');for(const id of node.inputs){const input=analysis.nodes.find(n=>n.id===id);if(input)inputs.append(tensorCard(input,false));}if(!node.inputs.length)inputs.append(el('p','此操作创建逻辑形状，没有直接输入。','muted'));flow.append(inputs,el('div','↓ '+node.op,'flow-arrow'));const output=section('输出');output.append(tensorCard(node,true));flow.append(output);root.append(flow,mapping());
+    const steps=operationNodes(analysis.nodes,!!state.show_all);const node=selected();
+    const browse=section(`${state.show_all?'全部节点':'张量步骤'} · ${steps.length}`);
+    const visibility=el('label',undefined,'visibility-control');const toggle=el('input');toggle.type='checkbox';toggle.checked=!!state.show_all;toggle.dataset.role='show-all-nodes';
+    toggle.addEventListener('change',()=>{pendingInspection=null;inspection=null;outputIndex=null;post('setNodeVisibility',{show_all:toggle.checked});});visibility.append(toggle,el('span','显示全部节点'));browse.append(visibility);
+    if(!state.show_all)browse.append(el('p',`已折叠 ${analysis.nodes.length-steps.length} 个参数、常量或准备节点。`,'muted'));
+    const position=steps.findIndex(n=>n.id===node?.id);const toolbar=el('div',undefined,'toolbar');
+    const change=delta=>{const nextNode=steps[position+delta];if(nextNode)post('selectNode',{node_id:nextNode.id});};
+    const prev=button('← 上一步',()=>change(-1));prev.disabled=position<=0;const next=button('下一步 →',()=>change(1));next.disabled=position<0||position>=steps.length-1;toolbar.append(prev,el('span',`${position+1} / ${steps.length}`,'muted'),next);browse.append(toolbar);
+    const list=el('div',undefined,'operation-list');for(const item of steps){const b=button(`${item.name||item.op} · ${item.op} ${shapeText(item)}`,()=>post('selectNode',{node_id:item.id}),'operation');b.dataset.node=item.id;b.classList.toggle('active',item.id===node?.id);b.setAttribute('aria-current',String(item.id===node?.id));list.append(b);}browse.append(list);root.append(browse);
+    if(!steps.length){root.append(el('p','当前没有张量步骤；可开启“显示全部节点”查看参数和其他分析节点。','notice'));return;}
+    if(!node)return;
+    const operation=section(`${node.name||node.op} · ${node.op}`);operation.append(el('pre',state.expressions?.[node.id]||node.name||node.op,'expression'),button(`查看源码 · 第 ${node.source.start_line} 行`,()=>post('revealSource',{node_id:node.id})));
+    const details=operationDetails(node,analysis.nodes);if(details)operation.append(details);root.append(operation);
+    const hidden=new Set(state.show_all?[]:contextInputs(node,analysis.nodes).map(input=>input.id));
+    const dataInputs=node.inputs.map(id=>analysis.nodes.find(n=>n.id===id)).filter(input=>input&&!hidden.has(input.id));
+    const flow=el('div',undefined,'flow');const inputs=section('输入');for(const input of dataInputs)inputs.append(tensorCard(input,false));
+    if(!dataInputs.length)inputs.append(el('p',hidden.size?'标量输入已列入上方参数与属性。':'此操作创建逻辑形状，没有直接输入。','muted'));flow.append(inputs,el('div','↓ '+node.op,'flow-arrow'));const output=section('输出');output.append(tensorCard(node,true));flow.append(output);root.append(flow,mapping());
   }
   window.addEventListener('message',event=>{
     const message=event.data;if(!message||typeof message!=='object')return;
     if(message.type==='state'){
       const next=message.state;
       if(next.file!==state.file||next.generation!==state.generation||next.version!==state.version)slices.clear();
-      if(next.stale||next.file!==state.file||next.selected!==state.selected||next.generation!==state.generation||next.version!==state.version){inspection=null;outputIndex=null;pendingInspection=null;}
+      if(next.stale||next.show_all!==state.show_all||next.file!==state.file||next.selected!==state.selected||next.generation!==state.generation||next.version!==state.version){inspection=null;outputIndex=null;pendingInspection=null;}
       state=next;render();
     } else if(message.type==='inspection'&&!state.stale){
       if(!pendingInspection||message.request_id!==pendingInspection.request_id||message.generation!==state.generation||message.generation!==pendingInspection.generation||message.node_id!==state.selected||message.node_id!==pendingInspection.node_id)return;

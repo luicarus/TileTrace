@@ -34,3 +34,17 @@ test('JSON options reject arrays for dictionaries and noninteger program IDs', (
  assert.throws(()=>validateParameters({parameters:{},program_ids:[0.5]}));
  assert.throws(()=>validateParameters({parameters:{},input_shapes:{x:[0]}}));
 });
+
+test('default selection promotes literals and parameter defaults to tensor operations, detailed view preserves literals',()=>{
+ const demo=require('./operations-fixture.cjs')();
+ const rows=demo.nodes.find(n=>n.name==='rows');const cols=demo.nodes.find(n=>n.name==='cols');
+ const zero=demo.nodes.find(n=>n.op==='constant'&&n.source.start_line===rows.source.start_line);
+ assert.equal(selectAt(demo.nodes,zero.source.start_line,zero.source.start_col,undefined),'n5');
+ assert.equal(selectAt(demo.nodes,zero.source.start_line,zero.source.start_col,undefined,undefined,true),zero.id);
+ const defaultFour=demo.nodes.find(n=>n.op==='constant'&&n.attrs.value===4);
+ assert.equal(selectAt(demo.nodes,defaultFour.source.start_line,defaultFour.source.start_col,undefined),cols.id);
+ const axis=demo.nodes.find(n=>n.op==='constant'&&n.attrs.value===1);
+ assert.equal(selectAt(demo.nodes,axis.source.start_line,axis.source.start_col,undefined),demo.nodes.find(n=>n.name==='row_sum').id);
+ const s=new SelectionState();s.accept(s.begin('demo.py',1),demo);assert.equal(s.selected,rows.id);
+ const detailed=new SelectionState();detailed.accept(detailed.begin('demo.py',1),demo,true);assert.equal(detailed.selected,demo.nodes[0].id);
+});

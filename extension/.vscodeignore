@@ -7,3 +7,4 @@ python/**/*.pyc
 tsconfig.json
 package-lock.json
 .gitignore
+media/*.d.ts
