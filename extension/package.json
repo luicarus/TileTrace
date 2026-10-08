@@ -1,0 +1,40 @@
+{
+  "name": "triton-transform-visualizer",
+  "displayName": "Triton Transform Visualizer",
+  "description": "Private prototype for static Triton logical shape and coordinate visualization.",
+  "version": "0.1.0",
+  "publisher": "local-tools",
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onLanguage:python"],
+  "contributes": {
+    "commands": [
+      { "command": "tritonTransform.open", "title": "Triton: 打开变换可视化" },
+      { "command": "tritonTransform.copyAgentPrompt", "title": "Triton: 复制 Agent 提示词" },
+      { "command": "tritonTransform.restartWorker", "title": "Triton: 重启分析进程" }
+    ],
+    "configuration": {
+      "title": "Triton Transform",
+      "properties": {
+        "tritonTransform.pythonPath": { "type": "string", "default": "python", "description": "Python 3.10+ 可执行文件；默认优先使用工作区 .venv。" },
+        "tritonTransform.autoOpen": { "type": "boolean", "default": true, "description": "激活包含 Triton jit kernel 的 Python 文件时打开面板。" },
+        "tritonTransform.sessionDirectory": { "type": "string", "default": ".triton-transform", "description": "与 MCP 服务匹配的会话目录，相对路径基于当前文件的工作区。" }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "npm run compile && node --test tests/*.test.cjs",
+    "vscode:prepublish": "npm run compile && node scripts/bundle.cjs",
+    "package": "node scripts/bundle.cjs && vsce package --no-dependencies --allow-missing-repository -o ../dist/triton-transform-visualizer-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.7.0"
+  }
+}

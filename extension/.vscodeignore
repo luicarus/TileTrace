@@ -1,0 +1,9 @@
+node_modules/**
+src/**
+tests/**
+scripts/**
+python/**/__pycache__/**
+python/**/*.pyc
+tsconfig.json
+package-lock.json
+.gitignore

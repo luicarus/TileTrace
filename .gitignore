@@ -4,8 +4,11 @@ __pycache__/
 *.egg-info/
 node_modules/
 extension/out/
+extension/python/
 dist/
+/build/
 *.vsix
 .superpowers/
 .triton-transform/
 .pytest_cache/
+.codex/config.toml
