@@ -36,7 +36,7 @@
 
 ## 会话
 
-上下文以独立 session_id 存储在工作区 `.triton-transform/`。VS Code 扩展与 MCP 进程必须配置同一个目录。会话标识只允许字母、数字、下划线和连字符，长度 1–80。
+上下文以独立 session_id 存储在工作区 `.tiletrace/`。VS Code 扩展与 MCP 进程必须配置同一个目录。会话标识只允许字母、数字、下划线和连字符，长度 1–80。
 
 只在界面接受结果后发布新的非过期上下文。上下文至少包含 document_id、version 与 stale；有分析结果时添加 analysis、selected_node_id、parameters、input_shapes 和 program_ids。
 

@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 
-from triton_transform.sessions import SessionStore
+from tiletrace.sessions import SessionStore
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -19,7 +19,7 @@ class McpIntegrationTests(unittest.TestCase):
     def test_real_stdio_client_discovers_tools_and_queries_analysis(self):
         async def exercise(directory):
             params = StdioServerParameters(command=sys.executable,
-                                           args=["-m", "triton_transform", "mcp", "--session-dir", directory])
+                                           args=["-m", "tiletrace", "mcp", "--session-dir", directory])
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as client:
                     await client.initialize()

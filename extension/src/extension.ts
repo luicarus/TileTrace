@@ -17,24 +17,24 @@ function relevant(document:vscode.TextDocument):boolean {
 export function activate(context:vscode.ExtensionContext):void {
   const controller=new Controller(context);
   context.subscriptions.push(controller,
-    vscode.commands.registerCommand('tritonTransform.open',()=>controller.open()),
-    vscode.commands.registerCommand('tritonTransform.copyAgentPrompt',()=>controller.copyPrompt()),
-    vscode.commands.registerCommand('tritonTransform.restartWorker',()=>controller.restart()),
+    vscode.commands.registerCommand('tiletrace.open',()=>controller.open()),
+    vscode.commands.registerCommand('tiletrace.copyAgentPrompt',()=>controller.copyPrompt()),
+    vscode.commands.registerCommand('tiletrace.restartWorker',()=>controller.restart()),
     vscode.window.onDidChangeActiveTextEditor(editor=>controller.activateEditor(editor)),
     vscode.workspace.onDidChangeTextDocument(event=>controller.changed(event.document)),
     vscode.workspace.onDidCloseTextDocument(document=>controller.closed(document)),
     vscode.window.onDidChangeTextEditorSelection(event=>controller.selection(event.textEditor)),
-    vscode.workspace.onDidChangeConfiguration(event=>{if(event.affectsConfiguration('tritonTransform'))void controller.restart();})
+    vscode.workspace.onDidChangeConfiguration(event=>{if(event.affectsConfiguration('tiletrace'))void controller.restart();})
   );
   controller.activateEditor(vscode.window.activeTextEditor);
 }
 class Controller implements vscode.Disposable {
   private panel?:vscode.WebviewPanel;private editor?:vscode.TextEditor;private worker?:WorkerClient;private contextWorker?:WorkerClient;private folder?:vscode.WorkspaceFolder;
-  private session=randomUUID();private state=new SelectionState();private output=vscode.window.createOutputChannel('Triton Transform');
+  private session=randomUUID();private state=new SelectionState();private output=vscode.window.createOutputChannel('TileTrace');
   private timer?:NodeJS.Timeout;private queue:Promise<void>=Promise.resolve();private inspectionSerial=0;private error='';private disposed=false;
   private options=new Map<string,Options>();
   constructor(private context:vscode.ExtensionContext){}
-  private get config():vscode.WorkspaceConfiguration {return vscode.workspace.getConfiguration('tritonTransform',this.editor?.document.uri);}
+  private get config():vscode.WorkspaceConfiguration {return vscode.workspace.getConfiguration('tiletrace',this.editor?.document.uri);}
   private currentOptions():Options {return this.options.get(this.state.document)??{parameters:{},input_shapes:{},program_ids:[]};}
   activateEditor(editor:vscode.TextEditor|undefined):void {
     // VS Code emits undefined when the webview takes focus; preserve its source editor.
@@ -60,11 +60,11 @@ class Controller implements vscode.Disposable {
   private createPanel():void {
     if(this.panel)return;
     this.session=randomUUID();
-    this.panel=vscode.window.createWebviewPanel('tritonTransform','Triton · 变换',vscode.ViewColumn.Beside,{enableScripts:true,retainContextWhenHidden:true,localResourceRoots:[vscode.Uri.joinPath(this.context.extensionUri,'media')]});
+    this.panel=vscode.window.createWebviewPanel('tiletrace','TileTrace · 变换',vscode.ViewColumn.Beside,{enableScripts:true,retainContextWhenHidden:true,localResourceRoots:[vscode.Uri.joinPath(this.context.extensionUri,'media')]});
     const nonce=randomBytes(18).toString('base64');const webview=this.panel.webview;
     const css=webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri,'media','viewer.css'));
     const js=webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri,'media','viewer.js'));
-    webview.html=`<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"><title>Triton 变换</title></head><body><main id="app"></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
+    webview.html=`<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${css}"><title>TileTrace 变换</title></head><body><main id="app"></main><script nonce="${nonce}" src="${js}"></script></body></html>`;
     this.panel.onDidDispose(()=>{this.panel=undefined;this.detach('面板已关闭。');},null,this.context.subscriptions);
     this.panel.webview.onDidReceiveMessage(message=>{void this.message(message).catch(error=>this.fail(error));},null,this.context.subscriptions);
   }
@@ -75,8 +75,8 @@ class Controller implements vscode.Disposable {
     this.releaseWorker();this.folder=folder;
     const root=folder.uri.fsPath;let command=this.config.get<string>('pythonPath','python');
     if(command==='python'){const venv=path.join(root,'.venv',process.platform==='win32'?'Scripts':'bin',process.platform==='win32'?'python.exe':'python');if(fs.existsSync(venv))command=venv;}
-    const configured=this.config.get<string>('sessionDirectory','.triton-transform');const directory=path.resolve(root,configured);
-    const bundle=path.join(this.context.extensionPath,'python');const pythonRoot=fs.existsSync(path.join(bundle,'triton_transform','__main__.py'))?bundle:path.resolve(this.context.extensionPath,'..');
+    const configured=this.config.get<string>('sessionDirectory','.tiletrace');const directory=path.resolve(root,configured);
+    const bundle=path.join(this.context.extensionPath,'python');const pythonRoot=fs.existsSync(path.join(bundle,'tiletrace','__main__.py'))?bundle:path.resolve(this.context.extensionPath,'..');
     const pair=new WorkerPair(workerLaunchOptions(command,pythonRoot,directory,text=>this.output.append(text)));
     this.session=randomUUID();
     this.worker=pair.analysis;this.contextWorker=pair.context;
@@ -161,7 +161,7 @@ class Controller implements vscode.Disposable {
   private fail(error:unknown):void {this.error=error instanceof Error?error.message:String(error);this.output.appendLine(this.error);this.send();}
   async copyPrompt():Promise<void> {
     if(!this.panel){this.open();if(!this.panel)return;}
-    await vscode.env.clipboard.writeText(`请使用 Triton Transform MCP：先调用 get_visualization_context(session_id="${this.session}") 获取此 VS Code 面板的当前上下文。检查 stale 和文档版本；使用 inspect_transform(session_id="${this.session}", node_id=<当前 selected_node_id>, index=<完整逻辑坐标>) 查看直接输入来源。仅解释静态形状与逻辑坐标，不宣称运行 kernel 或获得实际数值。若上下文过期，请等待编辑器完成分析。`);
+    await vscode.env.clipboard.writeText(`请使用 TileTrace MCP：先调用 get_visualization_context(session_id="${this.session}") 获取此 VS Code 面板的当前上下文。检查 stale 和文档版本；使用 inspect_transform(session_id="${this.session}", node_id=<当前 selected_node_id>, index=<完整逻辑坐标>) 查看直接输入来源。仅解释静态形状与逻辑坐标，不宣称运行 kernel 或获得实际数值。若上下文过期，请等待编辑器完成分析。`);
     void vscode.window.showInformationMessage(`已复制 Agent 提示词，会话 ${this.session}。`);
   }
   async restart():Promise<void> {this.releaseWorker();if(this.editor&&this.panel)this.schedule(0);}

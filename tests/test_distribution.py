@@ -12,8 +12,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VSIX = ROOT / "dist/triton-transform-visualizer-0.1.0.vsix"
-WHEEL = ROOT / "dist/triton_transform_visualizer-0.1.0-py3-none-any.whl"
+VSIX = ROOT / "dist/tiletrace-0.1.0.vsix"
+WHEEL = ROOT / "dist/tiletrace-0.1.0-py3-none-any.whl"
 
 
 @unittest.skipUnless(VSIX.exists(), "Build the VSIX with npm run package in extension/ first")
@@ -23,8 +23,8 @@ class ExtensionDistributionTests(unittest.TestCase):
             names = set(archive.namelist())
             manifest = json.loads(archive.read("extension/package.json"))
             self.assertIn("extension/" + manifest["main"].removeprefix("./"), names)
-            for source in (ROOT / "triton_transform").glob("*.py"):
-                bundled = archive.read("extension/python/triton_transform/" + source.name)
+            for source in (ROOT / "tiletrace").glob("*.py"):
+                bundled = archive.read("extension/python/tiletrace/" + source.name)
                 self.assertEqual(hashlib.sha256(bundled).hexdigest(),
                                  hashlib.sha256(source.read_bytes()).hexdigest(), source.name)
             self.assertFalse(any("node_modules/" in name or "/.venv/" in name or "__pycache__" in name for name in names))
@@ -33,7 +33,7 @@ class ExtensionDistributionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, zipfile.ZipFile(VSIX) as archive:
             target = Path(directory).resolve()
             for name in archive.namelist():
-                if not (name.startswith("extension/python/triton_transform/") or name == "extension/out/launch.js") or name.endswith("/"):
+                if not (name.startswith("extension/python/tiletrace/") or name == "extension/out/launch.js") or name.endswith("/"):
                     continue
                 destination = (target / name).resolve()
                 self.assertTrue(destination.is_relative_to(target))
@@ -42,7 +42,7 @@ class ExtensionDistributionTests(unittest.TestCase):
             workspace = target / "unrelated-workspace"
             workspace.mkdir()
             sentinels = []
-            for module in ("triton_transform", "json", "sitecustomize"):
+            for module in ("tiletrace", "json", "sitecustomize"):
                 sentinel = workspace / (module + ".executed")
                 sentinels.append(sentinel)
                 (workspace / (module + ".py")).write_text(
@@ -83,8 +83,8 @@ class ExtensionDistributionTests(unittest.TestCase):
 class PythonDistributionTests(unittest.TestCase):
     def test_python_wheel_contains_current_modules_and_optional_mcp_extra(self):
         with zipfile.ZipFile(WHEEL) as archive:
-            for source in (ROOT / "triton_transform").glob("*.py"):
-                self.assertEqual(archive.read("triton_transform/" + source.name), source.read_bytes(), source.name)
+            for source in (ROOT / "tiletrace").glob("*.py"):
+                self.assertEqual(archive.read("tiletrace/" + source.name), source.read_bytes(), source.name)
             metadata_name = next(n for n in archive.namelist() if n.endswith(".dist-info/METADATA"))
             metadata = archive.read(metadata_name).decode("utf-8")
             self.assertIn("Provides-Extra: mcp", metadata)

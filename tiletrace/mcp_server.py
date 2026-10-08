@@ -7,7 +7,7 @@ from typing import Any
 from .bridge import Bridge
 
 
-def create_server(session_dir: str = ".triton-transform"):
+def create_server(session_dir: str = ".tiletrace"):
     try:
         from mcp.server.fastmcp import FastMCP
         from mcp.types import ToolAnnotations
@@ -16,7 +16,7 @@ def create_server(session_dir: str = ".triton-transform"):
 
     bridge = Bridge(session_dir)
     server = FastMCP(
-        "Triton Transform Visualizer",
+        "TileTrace",
         instructions=("Explain logical Triton tensor transformations using static analysis. Never execute kernels. "
                       "Use get_visualization_context to list editor sessions, then request an explicit session_id. "
                       "Treat stale, symbolic and unsupported results honestly. Source ranges use one-based lines "

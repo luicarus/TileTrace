@@ -9,6 +9,6 @@ dist/
 /build/
 *.vsix
 .superpowers/
-.triton-transform/
+.tiletrace/
 .pytest_cache/
 .codex/config.toml

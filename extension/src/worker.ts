@@ -17,8 +17,8 @@ export class WorkerClient {
       } catch {this.options.log('忽略非 JSON worker 输出。\n');}
     });
     child.stderr.on('data',chunk=>this.options.log(String(chunk)));
-    child.on('error',error=>{if(this.process===child)this.stop(new Error(`无法启动 Python：${error.message}。请设置 tritonTransform.pythonPath。`));});
-    child.on('exit',(code,signal)=>{if(this.process===child)this.stop(new Error(`分析进程退出 (${code??signal})，可使用 Triton: 重启分析进程。`));});
+    child.on('error',error=>{if(this.process===child)this.stop(new Error(`无法启动 Python：${error.message}。请设置 tiletrace.pythonPath。`));});
+    child.on('exit',(code,signal)=>{if(this.process===child)this.stop(new Error(`分析进程退出 (${code??signal})，可使用 TileTrace: 重启分析进程。`));});
     child.stdin.on('error',error=>{if(this.process===child)this.stop(error);});
     return child;
   }

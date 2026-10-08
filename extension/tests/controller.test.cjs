@@ -4,12 +4,12 @@ test('production Controller startup ignores conflicting workspace modules and PY
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'triton-isolation-'));const python=path.resolve(__dirname,'../../.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
  const harness=createController({root,python});
  try{
-  for(const name of ['triton_transform','json','sitecustomize'])fs.writeFileSync(path.join(root,name+'.py'),`from pathlib import Path\nPath(${JSON.stringify(path.join(root,name+'.sentinel'))}).write_text('EXECUTED')\nprint('WORKSPACE_EXECUTED')\n`);
+  for(const name of ['tiletrace','json','sitecustomize'])fs.writeFileSync(path.join(root,name+'.py'),`from pathlib import Path\nPath(${JSON.stringify(path.join(root,name+'.sentinel'))}).write_text('EXECUTED')\nprint('WORKSPACE_EXECUTED')\n`);
   harness.controller.activateEditor(harness.editor);await until(()=>harness.launches.length===1);
   const options=harness.launches[0];
   const request={id:'isolated',method:'analyze',params:{source:harness.editor.document.getText(),document_id:'isolated.py',version:7}};
   const result=spawnSync(options.command,options.args,{cwd:options.cwd,env:{...options.env,PYTHONPATH:root,PYTHONHOME:root},input:JSON.stringify(request)+'\n',encoding:'utf8',timeout:10000});
-  assert.equal(result.status,0,result.stderr);assert.equal(fs.existsSync(path.join(root,'triton_transform.sentinel')),false);assert.equal(fs.existsSync(path.join(root,'json.sentinel')),false);assert.equal(fs.existsSync(path.join(root,'sitecustomize.sentinel')),false);
+  assert.equal(result.status,0,result.stderr);assert.equal(fs.existsSync(path.join(root,'tiletrace.sentinel')),false);assert.equal(fs.existsSync(path.join(root,'json.sentinel')),false);assert.equal(fs.existsSync(path.join(root,'sitecustomize.sentinel')),false);
   assert.equal(JSON.parse(result.stdout).result.version,7);assert.notEqual(options.cwd,root);assert.ok(options.args.includes('-I'));assert.ok(options.args.includes('-S'));
  }finally{harness.releaseOld();harness.controller.dispose();fs.rmSync(root,{recursive:true,force:true});}
 });

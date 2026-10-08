@@ -1,19 +1,38 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "triton-transform-visualizer"
+name = "tiletrace"
 version = "0.1.0"
 description = "Static Triton tensor transformation explanations for editors and agents"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = []
+keywords = ["triton", "gpu", "kernel", "visualization", "static-analysis", "mcp", "vscode"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Software Development :: Debuggers",
+]
+
+[project.urls]
+Homepage = "https://github.com/luicarus/TileTrace"
+Repository = "https://github.com/luicarus/TileTrace"
+Issues = "https://github.com/luicarus/TileTrace/issues"
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.20,<2"]
 
 [project.scripts]
-triton-transform = "triton_transform.__main__:main"
+tiletrace = "tiletrace.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["triton_transform*"]
+include = ["tiletrace*"]

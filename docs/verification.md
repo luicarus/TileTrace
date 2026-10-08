@@ -1,6 +1,6 @@
 # 第一版验证记录
 
-日期：2026-10-08（Asia/Shanghai）。版本：0.1.0，私有开发原型。
+日期：2026-10-08（Asia/Shanghai）。版本：0.1.0，开发原型。
 
 ## 自动化结果
 
@@ -21,7 +21,7 @@
 - 会话与协议：实际官方 MCP SDK STDIO 客户端、跨进程上下文查询、过期拒绝、显式会话 ID、Windows 读写锁、并发版本排序、异常 JSON/非有限请求标识恢复、源码大小上限。
 - 编辑器控制逻辑：实际 Controller 的 VM 适配测试、赋值左侧选择、版本/代次拒绝、工作区可信状态、延迟旧清理不能删除新会话。
 - 界面：jsdom 执行真实 viewer，点击坐标、高亮来源、标量、高维切片、视窗边界、巨大张量渲染上限、参数 JSON、切换分析时重置切片、最新点击的成功/错误响应匹配。
-- 分发：提取 VSIX 的真实生产启动 helper 和 backend，在含有同名 `triton_transform.py`、`json.py`、`sitecustomize.py` 且污染 Python 环境变量的临时工作区中验证隔离启动；正常分析成功，同名文件未执行。
+- 分发：提取 VSIX 的真实生产启动 helper 和 backend，在含有同名 `tiletrace.py`、`json.py`、`sitecustomize.py` 且污染 Python 环境变量的临时工作区中验证隔离启动；正常分析成功，同名文件未执行。
 
 另以无界面浏览器检查了窄面板的网格布局与广播来源高亮。该检查使用本地静态 fixture，不等于实际 VS Code 扩展宿主验证。
 
@@ -33,7 +33,7 @@
 
 ## 安装后建议验证
 
-1. 安装 `dist/triton-transform-visualizer-0.1.0.vsix`，在受信任工作区打开 `examples/transforms.py`。
+1. 安装 `dist/tiletrace-0.1.0.vsix`，在受信任工作区打开 `examples/transforms.py`。
 2. 在 `broadcast_demo` 中选择左侧 `matrix`，点击输出 `[1,2]`，确认输入 `[1,0]` 与 `[0,2]` 高亮。
 3. 切换 `reshape_demo` 并查看转置；更改参数，确认旧坐标映射在新分析完成前清除。
 4. 重启分析进程，复制新的 Agent 提示词；配置 MCP 使用相同会话目录，在新的 Codex 会话中查询当前选择。

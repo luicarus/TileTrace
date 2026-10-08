@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Triton: compile extension",
+      "label": "TileTrace: compile extension",
       "type": "process",
       "command": "npm",
       "windows": {"command": "npm.cmd"},

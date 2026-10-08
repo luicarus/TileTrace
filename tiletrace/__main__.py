@@ -54,7 +54,7 @@ def main() -> int:
     analyze_parser.add_argument("--program-ids", default="[0,0,0]", help="JSON list of selected program coordinates")
     for name in ("worker", "mcp"):
         subparser = commands.add_parser(name)
-        subparser.add_argument("--session-dir", default=".triton-transform")
+        subparser.add_argument("--session-dir", default=".tiletrace")
     args = parser.parse_args()
     try:
         if args.command == "worker":

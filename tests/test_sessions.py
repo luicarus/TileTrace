@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from triton_transform.sessions import SessionStore
+from tiletrace.sessions import SessionStore
 
 
 def publish_context(directory, version, started, read, release, done, results, clear=False):
@@ -153,7 +153,7 @@ class SessionStoreTests(unittest.TestCase):
         publisher.start()
         try:
             self.assertTrue(read.wait(5))
-            with patch('triton_transform.sessions._LOCK_TIMEOUT_SECONDS', 0.1, create=True):
+            with patch('tiletrace.sessions._LOCK_TIMEOUT_SECONDS', 0.1, create=True):
                 with self.assertRaisesRegex(TimeoutError, 'session.*window-1'):
                     SessionStore(self.directory.name).put('window-1', {'document_id': 'a', 'version': 3})
         finally:

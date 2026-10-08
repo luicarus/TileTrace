@@ -1,8 +1,12 @@
-# Triton Transform Visualizer
+# TileTrace
 
 独立实现的 Triton 张量变换可视化工具。打开 Triton 脚本，选中表达式，在 VS Code 右侧查看形状变化与元素来源；Codex 或其他 MCP agent 可查询同一份分析结果。
 
-这是私有开发原型，尚未发布到扩展市场。分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。
+分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
+
+> 状态：0.1.0 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
+>
+> 建议的仓库 topics：`triton` `gpu-kernel` `visualization` `static-analysis` `mcp` `vscode-extension` `python`
 
 ## 当前功能
 
@@ -20,10 +24,10 @@
 
 ```powershell
 .\scripts\setup.ps1
-code --install-extension .\dist\triton-transform-visualizer-0.1.0.vsix
+code --install-extension .\dist\tiletrace-0.1.0.vsix
 ```
 
-安装后打开本项目的 `examples/transforms.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **Triton: 打开变换可视化**。若修改了 Python 路径，使用 **Triton: 重启分析进程** 重启分析进程。
+安装后打开本项目的 `examples/transforms.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
 
 选择 `broadcast_demo`，点击 `matrix`，再点击输出网格中的任意坐标，即可观察两个广播输入的对应位置。切换到 `reshape_demo` 查看 reshape 与转置；`softmax_demo` 可补入 `{"N":6}`。
 
@@ -33,12 +37,12 @@ code --install-extension .\dist\triton-transform-visualizer-0.1.0.vsix
 
 `setup.ps1` 仅在 `.codex/config.toml` 不存在时生成本项目配置；已有文件会完整保留，请按下方示例手动添加或更新服务。生成的配置包含本机绝对路径，已加入 Git 忽略规则；移动项目后请手动更新路径。脚本不会修改用户级配置。该配置启动本地 STDIO MCP 服务；项目需要受信任，并在新 Codex 会话中加载。官方说明：[Codex MCP](https://learn.chatgpt.com/docs/extend/mcp)。
 
-如果把源码移到其他工作区，请让扩展的 `tritonTransform.sessionDirectory` 与 MCP 的 `--session-dir` 指向同一个目录。可在需要分析的项目中手动添加：
+如果把源码移到其他工作区，请让扩展的 `tiletrace.sessionDirectory` 与 MCP 的 `--session-dir` 指向同一个目录。可在需要分析的项目中手动添加：
 
 ```toml
-[mcp_servers.triton_transform]
+[mcp_servers.tiletrace]
 command = "本工具虚拟环境的 Python 绝对路径"
-args = ["-m", "triton_transform", "mcp", "--session-dir", "目标工作区/.triton-transform 的绝对路径"]
+args = ["-m", "tiletrace", "mcp", "--session-dir", "目标工作区/.tiletrace 的绝对路径"]
 cwd = "本工具项目的绝对路径"
 ```
 
@@ -57,12 +61,16 @@ Windows 路径可使用正斜杠 `/`；若使用反斜杠，请在 TOML 双引�
 ## 命令行与开发
 
 ```powershell
-.\.venv\Scripts\python.exe -m triton_transform analyze examples/transforms.py --kernel reshape_demo
+.\.venv\Scripts\python.exe -m tiletrace analyze examples/transforms.py --kernel reshape_demo
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-VS Code 扩展开发与打包说明见 [extension/README.md](extension/README.md)。设计与边界见 [设计文档](docs/design/triton-transform-visualizer.md)，自动化证据与实际验收限制见 [验证记录](docs/verification.md)。
+VS Code 扩展开发与打包说明见 [extension/README.md](extension/README.md)。设计与边界见 [设计文档](docs/design/tiletrace.md)，自动化证据与实际验收限制见 [验证记录](docs/verification.md)。
 
 ## 来源
 
 分析规则依据 [Triton 官方 API](https://triton-lang.org/main/python-api/triton.language.html)，编辑器接入依据 [VS Code Webview API](https://code.visualstudio.com/api/extension-guides/webview)。[TileLens](https://github.com/Deep-Learning-Profiling-Tools/tilelens) 用于功能覆盖比较；本项目没有复制其代码或界面。
+
+## 许可证
+
+[MIT](LICENSE)

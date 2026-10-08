@@ -12,7 +12,7 @@ MAX_SOURCE_CHARACTERS = 1_000_000
 
 
 class Bridge:
-    def __init__(self, session_dir: str | Path = ".triton-transform"):
+    def __init__(self, session_dir: str | Path = ".tiletrace"):
         self.sessions = SessionStore(session_dir)
 
     def dispatch(self, method: str, params: dict) -> dict:

@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from triton_transform.analyzer import analyze, inspect_transform
+from tiletrace.analyzer import analyze, inspect_transform
 
 
 def kernel(body, args='BLOCK: tl.constexpr = 8'):

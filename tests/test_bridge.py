@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from triton_transform.bridge import Bridge
+from tiletrace.bridge import Bridge
 
 
 SOURCE = """import triton
@@ -67,7 +67,7 @@ class BridgeTests(unittest.TestCase):
     def test_worker_recovers_after_invalid_json(self):
         requests = "not json\n" + json.dumps({"id": "good", "method": "analyze", "params": {
             "source": SOURCE, "parameters": {"BLOCK": 8}}}) + "\n"
-        result = subprocess.run([sys.executable, "-m", "triton_transform", "worker", "--session-dir", self.directory.name],
+        result = subprocess.run([sys.executable, "-m", "tiletrace", "worker", "--session-dir", self.directory.name],
                                 input=requests, text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = [json.loads(line) for line in result.stdout.splitlines()]
@@ -84,7 +84,7 @@ class BridgeTests(unittest.TestCase):
         requests.append('{"id":"bad-parameter","method":"analyze","params":{"source":"",'
                         '"parameters":{"BLOCK":1e999}}}')
         requests.append(json.dumps({"id": "good-中文", "method": "get_context"}, ensure_ascii=False))
-        result = subprocess.run([sys.executable, "-m", "triton_transform", "worker", "--session-dir", self.directory.name],
+        result = subprocess.run([sys.executable, "-m", "tiletrace", "worker", "--session-dir", self.directory.name],
                                 input='\n'.join(requests) + '\n', encoding='utf-8', capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = [json.loads(line) for line in result.stdout.splitlines()]
@@ -104,7 +104,7 @@ class BridgeTests(unittest.TestCase):
             stream.write('!')
             for _ in range(100):
                 stream.write(' ' * 10_000)
-        result = subprocess.run([sys.executable, "-m", "triton_transform", "analyze", str(path)],
+        result = subprocess.run([sys.executable, "-m", "tiletrace", "analyze", str(path)],
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 2, result.stderr)
         error = json.loads(result.stdout)["error"]
@@ -114,7 +114,7 @@ class BridgeTests(unittest.TestCase):
     def test_cli_reads_example_without_importing_triton(self):
         path = Path(self.directory.name) / "example.py"
         path.write_text(SOURCE, encoding="utf-8")
-        result = subprocess.run([sys.executable, "-m", "triton_transform", "analyze", str(path),
+        result = subprocess.run([sys.executable, "-m", "tiletrace", "analyze", str(path),
                                  "--parameters", '{"BLOCK":8}'], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         analysis = json.loads(result.stdout)
@@ -139,9 +139,9 @@ class SetupScriptTests(unittest.TestCase):
         # Intercept only package installation; run the actual configuration
         # logic in its copied checkout with real filesystem/path operations.
         command = ('function global:.venv/Scripts/python.exe { $global:LASTEXITCODE = 0 }; '
-                   '& $env:TRITON_TEST_SETUP -SkipExtension')
+                   '& $env:TILETRACE_TEST_SETUP -SkipExtension')
         result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
-                                env={**os.environ, 'TRITON_TEST_SETUP': str(self.project / 'scripts' / 'setup.ps1')},
+                                env={**os.environ, 'TILETRACE_TEST_SETUP': str(self.project / 'scripts' / 'setup.ps1')},
                                 capture_output=True, encoding='utf-8', errors='replace', timeout=15,
                                 creationflags=subprocess.CREATE_NO_WINDOW)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -165,10 +165,10 @@ class SetupScriptTests(unittest.TestCase):
         self.run_setup()
         content = self.configuration.read_bytes()
         self.assertFalse(content.startswith(b'\xef\xbb\xbf'))
-        server = tomllib.loads(content.decode('utf-8'))['mcp_servers']['triton_transform']
+        server = tomllib.loads(content.decode('utf-8'))['mcp_servers']['tiletrace']
         self.assertEqual(Path(server['cwd']).resolve(), self.project.resolve())
         self.assertEqual(Path(server['command']).resolve(), (self.project / '.venv/Scripts/python.exe').resolve())
-        self.assertEqual(server['args'], ['-m', 'triton_transform', 'mcp', '--session-dir', '.triton-transform'])
+        self.assertEqual(server['args'], ['-m', 'tiletrace', 'mcp', '--session-dir', '.tiletrace'])
 
 
 if __name__ == "__main__":

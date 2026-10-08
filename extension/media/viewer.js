@@ -127,7 +127,7 @@
   }
   function render() {
     root.replaceChildren();
-    const header=el('header');const title=el('div',undefined,'title-row');title.append(el('h1','Triton · 变换'),el('span',state.stale?'等待分析':'静态分析','status'));header.append(title);
+    const header=el('header');const title=el('div',undefined,'title-row');title.append(el('h1','TileTrace · 变换'),el('span',state.stale?'等待分析':'静态分析','status'));header.append(title);
     header.append(el('p','形状与逻辑坐标 · 不执行 kernel','muted'));
     const file=el('p',`${state.file||'尚未选择源文件'} · v${state.version||0}`,'file');file.title=state.file||'';header.append(file);
     const actions=el('div',undefined,'toolbar');actions.append(button('复制 Agent 提示词',()=>post('copyPrompt')));
