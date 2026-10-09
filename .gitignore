@@ -10,5 +10,6 @@ dist/
 *.vsix
 .superpowers/
 .tiletrace/
+.triton-transform/
 .pytest_cache/
 .codex/config.toml
