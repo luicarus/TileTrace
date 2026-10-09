@@ -3,13 +3,60 @@ const node=(id,shape,inputs=[])=>({id,name:id,op:'reshape',shape,inputs,status:'
 function setup(nodes) {const messages=[];const dom=new JSDOM('<main id="app"></main>',{runScripts:'outside-only'});dom.window.acquireVsCodeApi=()=>({postMessage:m=>messages.push(m),getState:()=>null,setState:()=>{}});dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/operations.js'),'utf8'));dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/viewer.js'),'utf8'));const send=data=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data}));send({type:'state',state:{analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:nodes[nodes.length-1].id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});return {dom,messages,send};}
 const inspectionResponse=(request,output,inspection)=>({type:'inspection',request_id:request.request_id,generation:request.generation,node_id:request.node_id,inspection:{node:output,...inspection}});
 
+test('long vectors show head and tail with an accessible ellipsis and exact tail coordinates',()=>{
+ for(const size of [8,9,16,1000000]) {
+  const v=node('v',[size]);const {dom,messages}=setup([v]);const card=dom.window.document.querySelector('[data-card-role="output"]');
+  const indices=Array.from(card.querySelectorAll('[data-index]'),c=>JSON.parse(c.dataset.index)[0]);
+  assert.deepEqual(indices,size<=8?Array.from({length:size},(_,i)=>i):[0,1,2,size-3,size-2,size-1]);
+  assert.equal(card.querySelectorAll('.axis-ellipsis').length,size<=8?0:1);
+  assert.equal(card.querySelector('.pill').textContent,`[${size}]`);
+  if(size>8){const gap=card.querySelector('.axis-ellipsis');assert.match(gap.getAttribute('aria-label'),/3.*省略/);card.querySelector(`[data-index="[${size-1}]"]`).click();assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[size-1]);}
+ }
+});
+
+test('matrix overview folds both axes and expanding a gap reveals actual middle coordinates',()=>{
+ const {dom,messages}=setup([node('x',[16,32])]);const document=dom.window.document;
+ let card=document.querySelector('[data-card-role="output"]');
+ assert.equal(card.querySelectorAll('[data-index]').length,36);assert.ok(card.querySelector('[data-index="[15,31]"]'));assert.equal(card.querySelector('[data-index="[7,7]"]'),null);
+ const gap=card.querySelector('.axis-ellipsis[data-axis="0"]');gap.focus();gap.click();
+ assert.equal(document.activeElement.dataset.role,'toggle-grid-window');
+ card=document.querySelector('[data-card-role="output"]');assert.ok(card.querySelector('[data-index="[3,0]"]'));assert.equal(card.querySelectorAll('.axis-ellipsis').length,0);assert.ok(card.querySelectorAll('[data-index]').length<=128);
+ const col=card.querySelector('input[data-axis="1"]');col.value='5';col.dispatchEvent(new dom.window.Event('change'));
+ document.querySelector('[data-output="true"][data-index="[3,5]"]').click();assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[3,5]);
+ document.querySelector('[data-card-role="output"] [data-role="toggle-grid-window"]').click();
+ assert.ok(document.querySelector('[data-output="true"][data-index="[15,31]"]'));assert.equal(document.querySelectorAll('[data-card-role="output"] .axis-ellipsis').length,8);
+});
+
+test('collapsed input origins count only visible head/tail cells and can reveal omitted sources',()=>{
+ const {dom,messages,send}=setup([node('in',[16]),node('out',[1],['in'])]);const document=dom.window.document;
+ document.querySelector('[data-output="true"]').click();
+ send(inspectionResponse(messages.at(-1),node('out',[1],['in']),{status:'exact',output_index:[0],origins:[{node_id:'in',indices:[[7]],total:1,truncated:false}]}));
+ assert.equal(document.querySelectorAll('.origin').length,0);assert.match(document.querySelector('.mapping').textContent,/高亮 0 \/ 1/);
+ document.querySelector('[data-origin-target="in"]').click();assert.ok(document.querySelector('[data-node="in"][data-index="[7]"].origin'));assert.match(document.querySelector('.mapping').textContent,/高亮 1 \/ 1/);
+});
+
+test('origin text abbreviates returned coordinates without inventing an unenumerated tail',()=>{
+ const {dom,messages,send}=setup([node('in',[1000000]),node('out',[1],['in'])]);const document=dom.window.document;
+ document.querySelector('[data-output="true"]').click();
+ send(inspectionResponse(messages.at(-1),node('out',[1],['in']),{status:'exact',output_index:[0],origins:[{node_id:'in',indices:Array.from({length:16},(_,i)=>[i]),total:1000000,truncated:true}]}));
+ const text=document.querySelector('.coordinates').textContent;assert.equal(text,'[0] · [1] · [2] · … · [13] · [14] · [15]');assert.doesNotMatch(text,/999999/);
+ assert.match(document.querySelector('.mapping').textContent,/来源枚举已截断/);assert.match(document.querySelector('.mapping').textContent,/返回坐标的首尾/);
+});
+
+test('expanding and collapsing keeps page position and toggle focus',()=>{
+ const {dom}=setup([node('out',[16])]);const document=dom.window.document;const scroll=scrollModel(dom);let toggle=document.querySelector('[data-role="toggle-grid-window"]');
+ toggle.focus();scroll.set(0,420);toggle.click();
+ assert.deepEqual(scroll.position(),[0,420]);assert.equal(document.activeElement.dataset.role,'toggle-grid-window');assert.equal(document.querySelectorAll('[data-output="true"]').length,16);
+ toggle=document.activeElement;toggle.click();assert.deepEqual(scroll.position(),[0,420]);assert.equal(document.activeElement.dataset.role,'toggle-grid-window');assert.equal(document.querySelectorAll('[data-output="true"]').length,6);
+});
+
 test('one-dimensional row indices follow new-axis use without changing coordinate rank',()=>{
  const rows=node('rows',[16]);const expanded=node('expanded',[16,1],['rows']);expanded.op='expand_dims';expanded.attrs={mapping:'expand_dims',axes:[1]};
  const {dom,messages,send}=setup([rows,expanded]);const document=dom.window.document;
- assert.equal(document.querySelector('[data-card-role="output"] tbody').rows.length,16);
+ assert.equal(document.querySelector('[data-card-role="output"] tbody').rows.length,7);
  send({type:'state',state:{analysis:{nodes:[rows,expanded],kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:'rows',stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
  const card=document.querySelector('[data-card-role="output"]');
- assert.equal(card.querySelectorAll('tbody tr').length,16);
+ assert.equal(card.querySelectorAll('tbody tr').length,7);
  assert.equal(card.querySelectorAll('tbody tr:first-child td').length,1);
  assert.equal(card.querySelector('.pill').textContent,'[16]');
  assert.match(card.textContent,/行轴/);
@@ -22,7 +69,7 @@ test('vector direction follows uses and selected transform, never variable names
  const {dom,send}=setup([vector,rowUse,colUse]);const document=dom.window.document;
  const select=id=>send({type:'state',state:{analysis:{nodes:[vector,rowUse,colUse],kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
  select('query_rows');assert.match(document.querySelector('[data-card-role="output"]').textContent,/未指定行列方向/);
- select('r');assert.equal(document.querySelector('[data-card-role="input"] tbody').rows.length,16);
+ select('r');assert.equal(document.querySelector('[data-card-role="input"] tbody').rows.length,7);
  select('c');assert.equal(document.querySelector('[data-card-role="input"] tbody').rows.length,1);
  const unused=setup([node('query_rows',[16])]);assert.match(unused.dom.window.document.querySelector('[data-card-role="output"]').textContent,/未指定行列方向/);
 });
@@ -59,7 +106,7 @@ test('FlashAttention shows both KV iterations and dot origins as a row and colum
  const {dom,send,messages}=setup(data.analysis.nodes);
  const select=id=>send({type:'state',state:{analysis:data.analysis,selected:id,stale:false,file:'attention.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
  select(data.analysis.nodes.find(n=>n.name==='query_rows').id);
- assert.equal(dom.window.document.querySelector('[data-card-role="output"] tbody').rows.length,16);
+ assert.equal(dom.window.document.querySelector('[data-card-role="output"] tbody').rows.length,7);
  select(data.analysis.nodes.find(n=>n.name==='head_cols').id);
  assert.equal(dom.window.document.querySelector('[data-card-role="output"] tbody').rows.length,1);
  select(data.analysis.nodes.find(n=>n.name==='q').id);
@@ -70,9 +117,9 @@ test('FlashAttention shows both KV iterations and dot origins as a row and colum
  assert.match(document.body.textContent,/矩阵乘法归约长度/);
  document.querySelector('[data-output="true"][data-index="[0,1]"]').click();
  send(inspectionResponse(messages.at(-1),data.node,data.inspection));
- // The 8x16 viewport shows part of the row and column; origins retain all 32.
- assert.equal(document.querySelectorAll('[data-node="'+data.node.inputs[0]+'"].origin').length,16);
- assert.equal(document.querySelectorAll('[data-node="'+data.node.inputs[1]+'"].origin').length,8);
+ // The overview shows six head/tail coordinates per axis; origins retain 32.
+ assert.equal(document.querySelectorAll('[data-node="'+data.node.inputs[0]+'"].origin').length,6);
+ assert.equal(document.querySelectorAll('[data-node="'+data.node.inputs[1]+'"].origin').length,6);
  assert.equal(data.inspection.origins[0].total,32);
  assert.equal(data.inspection.origins[1].total,32);
 });

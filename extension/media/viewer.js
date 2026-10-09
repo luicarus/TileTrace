@@ -94,7 +94,7 @@
     return details;
   }
   function sliceFor(node) {
-    if(!slices.has(node.id)) slices.set(node.id,{prefix:node.shape.slice(0,-2).map(()=>0),row:0,col:0});
+    if(!slices.has(node.id)) slices.set(node.id,{prefix:node.shape.slice(0,-2).map(()=>0),row:0,col:0,expanded:false});
     return slices.get(node.id);
   }
   function numericControl(label,axis,value,max,change,output) {
@@ -131,14 +131,38 @@
     }
     return axes.size===1?[...axes][0]:null;
   }
+  function axisCoordinates(length,start,limit,overview) {
+    if(overview&&length>8)return [0,1,2,null,length-3,length-2,length-1];
+    return Array.from({length:Math.min(length-start,limit)},(_,i)=>start+i);
+  }
   function gridLayout(node) {
     const rank=node.shape.length,axis=rank===1?vectorAxis(node):null,vertical=axis===0;
     const rows=rank>=2?node.shape[rank-2]:vertical?node.shape[0]:1;
     const cols=rank>=2?node.shape[rank-1]:rank===1&&!vertical?node.shape[0]:1;
     const slice=sliceFor(node);
-    return {axis,vertical,rows,cols,maxRows:vertical||cols===1?16:8,maxCols:16,
-      startRow:Math.min(rank===1?(vertical?slice.col:0):slice.row,rows-1),
-      startCol:Math.min(vertical?0:slice.col,cols-1)};
+    const maxRows=vertical||cols===1?16:8,maxCols=16;
+    const startRow=slice.expanded?Math.min(rank===1?(vertical?slice.col:0):slice.row,rows-1):0;
+    const startCol=slice.expanded?Math.min(vertical?0:slice.col,cols-1):0;
+    return {axis,vertical,rows,cols,maxRows,maxCols,startRow,startCol,
+      rowIndices:axisCoordinates(rows,startRow,maxRows,!slice.expanded),
+      colIndices:axisCoordinates(cols,startCol,maxCols,!slice.expanded)};
+  }
+  function gridMode(node,output,expanded,axis=null,start=0) {
+    const slice=sliceFor(node);slice.expanded=expanded;
+    if(axis!==null){if(axis===node.shape.length-1)slice.col=start;else slice.row=start;}
+    if(output){pendingInspection=null;outputIndex=null;inspection=null;}
+    render();
+  }
+  function ellipsis(node,output,axis,length,key) {
+    const gap=button('…',event=>{
+      const owner=event.currentTarget.closest('[data-card-node]');const occurrence=owner.dataset.cardOccurrence;
+      gridMode(node,output,true,axis,3);
+      const card=Array.from(root.querySelectorAll('[data-card-node]')).find(candidate=>candidate.dataset.cardNode===node.id&&candidate.dataset.cardRole===(output?'output':'input')&&candidate.dataset.cardOccurrence===occurrence);
+      card?.querySelector('[data-role="toggle-grid-window"]')?.focus({preventScroll:true});
+    },'axis-ellipsis');
+    gap.dataset.axis=String(axis);gap.dataset.gapKey=key;
+    const label=`轴 ${axis} 的 3–${length-4} 坐标已省略，点击查看中间窗口`;
+    gap.title=label;gap.setAttribute('aria-label',label);return gap;
   }
   function tensorCard(node,output,occurrence=0) {
     const card=el('article',undefined,'tensor-card');card.dataset.cardNode=node.id;
@@ -152,21 +176,24 @@
     if(total===0n){card.append(el('p','空张量，没有可选坐标。','notice'));return card;}
     const layout=gridLayout(node);const {rows,cols,maxRows,maxCols,vertical}=layout;
     if(rank===1)card.append(el('p',layout.axis===0?'一维索引 · 在新增轴用法中对应矩阵行轴；纵向展示，形状仍为一维。':layout.axis===1?'一维索引 · 在新增轴用法中对应矩阵列轴；横向展示，形状仍为一维。':'一维向量 · 未指定行列方向；横向展示仅为排版。','muted'));
-    if(rank>=2)card.append(el('p',`当前切片包含 ${rows} 行 × ${cols} 列；网格窗口最多展示 ${maxRows} 行 × ${maxCols} 列。`,'muted'));
+    if(rank>=2)card.append(el('p',`当前切片包含 ${rows} 行 × ${cols} 列；展开窗口最多展示 ${maxRows} 行 × ${maxCols} 列。`,'muted'));
     const controls=el('div',undefined,'slice-controls');
+    if(rows>8||cols>8){const toggle=button(slice.expanded?'收起为首尾概览':'展开显示窗口',()=>gridMode(node,output,!slice.expanded));toggle.dataset.role='toggle-grid-window';toggle.setAttribute('aria-expanded',String(slice.expanded));controls.append(toggle);}
     if(rank>2){card.append(el('p','前缀轴选择一个切片；网格对应最后两轴。','muted'));for(let axis=0;axis<rank-2;axis++)controls.append(numericControl(`轴 ${axis}`,axis,slice.prefix[axis],shape[axis]-1,n=>{slice.prefix[axis]=n;},output));}
-    if(rows>maxRows)controls.append(numericControl(`轴 ${vertical?0:rank-2} 起点`,vertical?0:rank-2,vertical?slice.col:slice.row,rows-1,n=>{if(vertical)slice.col=n;else slice.row=n;},output));
-    if(cols>maxCols)controls.append(numericControl(`轴 ${rank-1} 起点`,rank-1,slice.col,cols-1,n=>{slice.col=n;},output));
+    if(slice.expanded&&rows>maxRows)controls.append(numericControl(`轴 ${vertical?0:rank-2} 起点`,vertical?0:rank-2,vertical?slice.col:slice.row,rows-1,n=>{if(vertical)slice.col=n;else slice.row=n;},output));
+    if(slice.expanded&&cols>maxCols)controls.append(numericControl(`轴 ${rank-1} 起点`,rank-1,slice.col,cols-1,n=>{slice.col=n;},output));
     if(controls.childNodes.length)card.append(controls);
     const table=el('table',undefined,'index-grid');table.setAttribute('aria-label',`${node.name} 逻辑坐标`);
     const head=el('thead');const heading=el('tr');heading.append(el('th',rank>=2?`轴 ${rank-2} / ${rank-1}`:'坐标'));
-    const {startRow,startCol}=layout;const shownRows=Math.min(rows-startRow,maxRows),shownCols=Math.min(cols-startCol,maxCols);
-    for(let col=0;col<shownCols;col++)heading.append(el('th',vertical?'索引':rank?startCol+col:'标量'));head.append(heading);table.append(head);
+    const {rowIndices,colIndices}=layout;
+    for(const col of colIndices){const th=el('th');if(col===null&&rank>=2)th.append(ellipsis(node,output,rank-1,cols,'header-col'));else th.textContent=col===null?'…':vertical?'索引':rank?String(col):'标量';heading.append(th);}head.append(heading);table.append(head);
     const body=el('tbody');let displayed=0;
-    for(let row=0;row<shownRows;row++){
-      const tr=el('tr');tr.append(el('th',rank>=2||vertical?startRow+row:'—'));
-      for(let col=0;col<shownCols;col++){
-        const index=rank===0?[]:rank===1?[vertical?startRow+row:startCol+col]:[...slice.prefix,startRow+row,startCol+col];
+    for(const row of rowIndices){
+      const tr=el('tr');tr.append(el('th',row===null?'…':rank>=2||vertical?row:'—'));
+      if(row===null){const td=el('td');td.colSpan=colIndices.length;td.append(ellipsis(node,output,vertical?0:rank-2,rows,'row'));tr.append(td);body.append(tr);continue;}
+      for(const col of colIndices){
+        if(col===null){const td=el('td');td.append(ellipsis(node,output,rank-1,cols,`col:${row}`));tr.append(td);continue;}
+        const index=rank===0?[]:rank===1?[vertical?row:col]:[...slice.prefix,row,col];
         const td=el('td');const cell=button(rank===0?'·':rank===1?String(index[0]):`${index[rank-2]},${index[rank-1]}`,()=>{
           if(!output)return;outputIndex=index;inspection=null;
           const request_id=String(++inspectionSequence);pendingInspection={request_id,generation:state.generation,node_id:node.id,index};
@@ -182,6 +209,7 @@
       body.append(tr);
     }
     table.append(body);const scroll=el('div',undefined,'grid-scroll');scroll.append(table);card.append(scroll);
+    if(!slice.expanded&&(rows>8||cols>8))card.append(el('p','长度超过 8 时显示前 3 项和后 3 项；省略号表示中间坐标，可点击展开。','muted'));
     card.append(el('p',`显示 ${displayed} 个逻辑坐标 / 总计 ${total.toString()} 个${rank>2?'（当前切片）':''}；每卡最多 128 个。`,'muted'));
     return card;
   }
@@ -193,16 +221,17 @@
     const current=selected();const folded=new Set(state.show_all||!current?[]:contextInputs(current,state.analysis.nodes).map(input=>input.id));
     for(const origin of inspection.origins){
       const n=state.analysis.nodes.find(n=>n.id===origin.node_id);const line=el('div',undefined,'origin-description');line.dataset.originNode=origin.node_id;line.append(el('strong',n?.name||origin.node_id));
-      line.append(el('p',origin.indices.slice(0,16).map(coordText).join(' · ')||'无输入坐标','coordinates'));
-      line.append(el('p',`返回 ${origin.indices.length} / 总计 ${origin.total}${origin.truncated?' · 来源枚举已截断':''}${origin.indices.length>16?' · 文本只显示前 16 项':''}`,'muted'));
+      const coordinates=origin.indices.map(coordText);const compact=coordinates.length>8?[...coordinates.slice(0,3),'…',...coordinates.slice(-3)]:coordinates;
+      line.append(el('p',compact.join(' · ')||'无输入坐标','coordinates'));
+      line.append(el('p',`返回 ${origin.indices.length} / 总计 ${origin.total}${origin.truncated?' · 来源枚举已截断':''}${origin.indices.length>8?' · 文本只显示返回坐标的首尾各 3 项':''}`,'muted'));
       if(folded.has(origin.node_id)){line.append(el('p','该标量输入已显示在参数与属性中。','muted'));box.append(line);continue;}
       if(n){const slice=sliceFor(n);const rank=n.shape.length;const layout=gridLayout(n);const visible=origin.indices.filter(index=>{
         if(rank===0)return true;
         if(rank>2&&!slice.prefix.every((v,i)=>v===index[i]))return false;
         const row=rank>=2?index[rank-2]:layout.vertical?index[0]:0;const col=layout.vertical?0:index[rank-1];
-        return row>=layout.startRow&&row<layout.startRow+layout.maxRows&&col>=layout.startCol&&col<layout.startCol+layout.maxCols;
-      }).length;line.append(el('p',`当前网格高亮 ${visible} / ${origin.indices.length} 个返回来源${visible<origin.indices.length?'；其余位于当前切片或显示范围之外。':''}`,'muted'));}
-      if(n&&origin.indices.length){const jump=button('定位首个来源坐标',()=>{const index=origin.indices[0];const slice=sliceFor(n);slice.prefix=index.slice(0,-2);slice.row=index.length>=2?index[index.length-2]:0;slice.col=index.length?index[index.length-1]:0;render();});jump.dataset.originTarget=origin.node_id;line.append(jump);}
+        return layout.rowIndices.includes(row)&&layout.colIndices.includes(col);
+      }).length;line.append(el('p',`当前网格高亮 ${visible} / ${origin.indices.length} 个返回来源${visible<origin.indices.length?'；其余位于当前切片、省略区域或显示范围之外。':''}`,'muted'));}
+      if(n&&origin.indices.length){const jump=button('定位首个来源坐标',()=>{const index=origin.indices[0];const slice=sliceFor(n);slice.expanded=true;slice.prefix=index.slice(0,-2);slice.row=index.length>=2?index[index.length-2]:0;slice.col=index.length?index[index.length-1]:0;render();});jump.dataset.originTarget=origin.node_id;line.append(jump);}
       box.append(line);
     }
     if(!inspection.origins.length)box.append(el('p','此节点没有直接输入来源。','muted'));
@@ -216,6 +245,8 @@
     if(element.matches('.expression'))return `expression:${element.dataset.ownerNode}`;
     if(element.matches('.grid-scroll'))return `grid:${scope}`;
     if(element.matches('.cell'))return `cell:${scope}:${element.dataset.index}`;
+    if(element.matches('.axis-ellipsis'))return `gap:${scope}:${element.dataset.gapKey}`;
+    if(element.matches('[data-role="toggle-grid-window"]'))return `grid-mode:${scope}`;
     if(element.matches('.operation'))return `operation:${element.dataset.node}`;
     if(element.matches('textarea'))return `parameter:${element.getAttribute('aria-label')}`;
     if(element.matches('input[type="number"]'))return `slice:${scope}:${element.dataset.axis}:${element.getAttribute('aria-label')}`;

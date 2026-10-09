@@ -2,7 +2,7 @@
   "name": "tiletrace",
   "displayName": "TileTrace",
   "description": "Explain Triton tensor shapes and coordinate provenance statically, without executing kernels.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "tiletrace",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/luicarus/TileTrace.git" },
@@ -31,7 +31,7 @@
     "compile": "tsc -p .",
     "test": "npm run compile && node --test tests/*.test.cjs",
     "vscode:prepublish": "npm run compile && node scripts/bundle.cjs",
-    "package": "node scripts/bundle.cjs && vsce package --no-dependencies --allow-missing-repository -o ../dist/tiletrace-0.1.4.vsix"
+    "package": "node scripts/bundle.cjs && vsce package --no-dependencies --allow-missing-repository -o ../dist/tiletrace-0.1.5.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
