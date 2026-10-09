@@ -2,6 +2,60 @@ const test=require('node:test');const assert=require('node:assert/strict');const
 const node=(id,shape,inputs=[])=>({id,name:id,op:'reshape',shape,inputs,status:'resolved',source:{start_line:1,start_col:0,end_line:1,end_col:10},attrs:{},dtype:null});
 function setup(nodes) {const messages=[];const dom=new JSDOM('<main id="app"></main>',{runScripts:'outside-only'});dom.window.acquireVsCodeApi=()=>({postMessage:m=>messages.push(m),getState:()=>null,setState:()=>{}});dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/operations.js'),'utf8'));dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/viewer.js'),'utf8'));const send=data=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data}));send({type:'state',state:{analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:nodes[nodes.length-1].id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});return {dom,messages,send};}
 const inspectionResponse=(request,output,inspection)=>({type:'inspection',request_id:request.request_id,generation:request.generation,node_id:request.node_id,inspection:{node:output,...inspection}});
+function scrollModel(dom,clampLoading=false) {
+ let x=0,y=0;
+ Object.defineProperties(dom.window,{scrollX:{configurable:true,get:()=>x},scrollY:{configurable:true,get:()=>y}});
+ dom.window.scrollTo=(left,top)=>{x=left;y=clampLoading&&!dom.window.document.querySelector('[data-output="true"]')?0:top;};
+ const root=dom.window.document.getElementById('app');const replace=root.replaceChildren.bind(root);
+ root.replaceChildren=(...children)=>{x=0;y=0;replace(...children);};
+ return {set:(left,top)=>{x=left;y=top;},position:()=>[x,y]};
+}
+
+test('output clicks and matching replies keep page/list/grid scroll, expanded parameters and focus',()=>{
+ const inputs=[node('in',[8]),node('out',[2,4],['in'])];const {dom,messages,send}=setup(inputs);const document=dom.window.document;const scroll=scrollModel(dom);
+ document.querySelector('.parameters').open=true;document.querySelector('.operation-list').scrollTop=80;document.querySelector('.expression').scrollTop=12;
+ document.querySelector('[data-card-node="in"] .grid-scroll').scrollLeft=65;document.querySelector('[data-card-node="out"] .grid-scroll').scrollLeft=35;
+ const cell=document.querySelector('[data-output="true"][data-index="[1,2]"]');cell.focus();scroll.set(7,620);cell.click();
+ const check=()=>{assert.deepEqual(scroll.position(),[7,620]);assert.equal(document.querySelector('.parameters').open,true);assert.equal(document.querySelector('.operation-list').scrollTop,80);assert.equal(document.querySelector('.expression').scrollTop,12);assert.equal(document.querySelector('[data-card-node="in"] .grid-scroll').scrollLeft,65);assert.equal(document.querySelector('[data-card-node="out"] .grid-scroll').scrollLeft,35);assert.equal(document.activeElement.dataset.index,'[1,2]');};
+ check();send(inspectionResponse(messages.at(-1),inputs[1],{status:'exact',output_index:[1,2],origins:[{node_id:'in',indices:[[6]],total:1,truncated:false}]}));check();
+});
+
+test('parameter caret/size/scroll and manual collapsed state survive background updates',()=>{
+ const nodes=[node('out',[2,4])];const {dom,send}=setup(nodes);const document=dom.window.document;const scroll=scrollModel(dom);
+ document.querySelector('.parameters').open=true;const textarea=document.querySelector('textarea');textarea.value='{"BLOCK":8}';textarea.dispatchEvent(new dom.window.Event('input'));textarea.style.height='96px';textarea.scrollTop=14;textarea.focus();textarea.setSelectionRange(4,8);scroll.set(0,200);
+ const state={analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:'out',stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]};
+ send({type:'state',state});assert.deepEqual(scroll.position(),[0,200]);const restored=document.querySelector('textarea');assert.equal(document.activeElement,restored);assert.equal(restored.selectionStart,4);assert.equal(restored.selectionEnd,8);assert.equal(restored.scrollTop,14);assert.equal(restored.style.height,'96px');
+ document.querySelector('.parameters').open=false;send({type:'state',state});assert.equal(document.querySelector('.parameters').open,false);
+});
+
+test('temporary stale layout cannot overwrite saved viewport and a different file starts at top',()=>{
+ const nodes=[node('out',[2,4])];const {dom,send}=setup(nodes);const document=dom.window.document;const scroll=scrollModel(dom,true);scroll.set(0,620);document.querySelector('.operation-list').scrollTop=80;document.querySelector('.parameters').open=true;
+ const analysis={nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]};
+ send({type:'state',state:{stale:true,file:'a.py',version:2,generation:2,parameters:{},input_shapes:{},program_ids:[]}});assert.equal(scroll.position()[1],0);
+ send({type:'state',state:{analysis,selected:'out',stale:false,file:'a.py',version:2,generation:2,parameters:{},input_shapes:{},program_ids:[]}});assert.equal(scroll.position()[1],620);assert.equal(document.querySelector('.operation-list').scrollTop,80);assert.equal(document.querySelector('.parameters').open,true);
+ send({type:'state',state:{analysis,selected:'out',stale:false,file:'b.py',version:1,generation:3,parameters:{},input_shapes:{},program_ids:[]}});assert.equal(scroll.position()[1],0);assert.equal(document.querySelector('.operation-list').scrollTop,0);assert.equal(document.querySelector('.parameters').open,false);
+});
+
+test('automatically restored surviving focus must not turn loading clamp into the saved viewport',()=>{
+ for(const control of ['textarea','apply']) {
+  const nodes=[node('out',[2,4])];const {dom,send}=setup(nodes);const document=dom.window.document;const scroll=scrollModel(dom,true);
+  document.querySelector('.parameters').open=true;
+  const focused=control==='textarea'?document.querySelector('textarea'):Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='应用参数并重新分析');focused.focus();scroll.set(0,200);
+  const fields={file:'a.py',version:2,generation:2,parameters:{},input_shapes:{},program_ids:[]};
+  send({type:'state',state:{...fields,stale:true}});assert.equal(scroll.position()[1],0);assert.notEqual(document.activeElement,document.body);
+  send({type:'state',state:{...fields,stale:false,analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:'out'}});
+  assert.equal(scroll.position()[1],200,control);
+ }
+});
+
+test('intentional parameter input during loading keeps the new position and caret',()=>{
+ const nodes=[node('out',[2,4])];const {dom,send}=setup(nodes);const document=dom.window.document;const scroll=scrollModel(dom,true);scroll.set(0,620);
+ const fields={file:'a.py',version:2,generation:2,parameters:{},input_shapes:{},program_ids:[]};
+ send({type:'state',state:{...fields,stale:true}});
+ const textarea=document.querySelector('textarea');textarea.focus();textarea.value='{"BLOCK":16}';textarea.setSelectionRange(3,7);textarea.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+ send({type:'state',state:{...fields,stale:false,analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:'out'}});
+ assert.equal(scroll.position()[1],0);assert.equal(document.activeElement,document.querySelector('textarea'));assert.equal(document.activeElement.selectionStart,3);assert.equal(document.activeElement.selectionEnd,7);
+});
 test('output click requests exact index and highlights immediate input origin',()=>{const {dom,messages,send}=setup([node('in',[8]),node('out',[2,4],['in'])]);dom.window.document.querySelector('[data-output="true"][data-index="[0,1]"]').click();assert.equal(messages.at(-1).type,'inspectIndex');assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[0,1]);send(inspectionResponse(messages.at(-1),node('out',[2,4],['in']),{status:'exact',output_index:[0,1],origins:[{node_id:'in',indices:[[1]],total:1,truncated:false}]}));assert.ok(dom.window.document.querySelector('[data-node="in"][data-index="[1]"]').classList.contains('origin'));send({type:'state',state:{stale:true,file:'a.py',version:2}});assert.equal(dom.window.document.querySelectorAll('.origin').length,0);assert.equal(dom.window.document.querySelectorAll('[data-output="true"]').length,0);});
 test('huge tensors stay capped, rank three supports prefix slices, symbolic tensors have no grid',()=>{const {dom,messages}=setup([node('x',[4,1000000,1000000])]);assert.ok(dom.window.document.querySelectorAll('[data-index]').length<=128);const slice=dom.window.document.querySelector('input[data-axis="0"]');assert.ok(slice);slice.value='3';slice.dispatchEvent(new dom.window.Event('change'));const cell=dom.window.document.querySelector('[data-output="true"]');cell.click();assert.equal(messages.at(-1).index[0],3);assert.match(dom.window.document.body.textContent,/显示.*总计/);const symbolic=setup([node('s',['BLOCK',4])]);assert.equal(symbolic.dom.window.document.querySelectorAll('[data-index]').length,0);assert.match(symbolic.dom.window.document.body.textContent,/符号/);});
 test('malicious source text is rendered literally and unavailable mappings clear origins',()=>{const x=node('x',[1]);x.name='<img src=x onerror=alert(1)>';const {dom,messages,send}=setup([x]);assert.equal(dom.window.document.querySelectorAll('img').length,0);dom.window.document.querySelector('[data-output="true"]').click();send(inspectionResponse(messages.at(-1),x,{status:'unavailable',output_index:[0],origins:[],message:'symbolic mapping'}));assert.match(dom.window.document.body.textContent,/symbolic mapping/);});

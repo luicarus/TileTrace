@@ -12,6 +12,8 @@
 
 按钮、下拉框、JSON 输入与轴切片支持键盘操作，并使用 VS Code 主题与焦点颜色。查看诊断可以区分缺少参数、形状不兼容和分析能力限制。无 kernel 节点时显示诊断与补充参数提示。
 
+同一文件的重绘保留页面与内部列表/网格滚动、参数区展开状态、焦点及 JSON 输入光标位置。等待新分析的短页面不会覆盖完整视图的阅读位置；新文件使用自己的阅读位置，首次打开从顶部开始。页面内容减少时，滚动位置受浏览器新的范围限制。关闭并重新创建面板后阅读位置重新初始化。
+
 ## Python 和会话
 
 运行时只需要 Python 3.10+，不需要 Triton、NumPy 或 Python MCP SDK。扩展没有 JavaScript 运行时依赖；VSIX 内置本仓库的标准库 Python worker。仅在 VS Code 已信任的工作区启动分析；配置的 Python 可执行文件及工作区 `.venv` 也必须可信。
@@ -37,7 +39,7 @@ npm.cmd test
 npm.cmd run package
 ```
 
-`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.1.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
+`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.2.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
 
 在 VS Code 打开仓库后选择调试配置 **TileTrace Extension** 并按 F5；先在 `extension/` 安装开发依赖。扩展开发宿主中打开 `examples/` 的 Triton 文件。通过 VS Code 扩展面板的 **Install from VSIX…** 手动安装生成的包。
 

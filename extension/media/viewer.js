@@ -13,6 +13,14 @@
   const slices = new Map();
   const drafts = new Map();
   const remembered = vscode.getState() || {};
+  const readingPositions = new Map();
+  let renderedFile = null;
+  let renderedStale = false;
+  let interactedWhileStale = false;
+  const markStaleInteraction=()=>{if(renderedStale)interactedWhileStale=true;};
+  // Restoring focus is not user activity. Only explicit interaction can replace
+  // the last full-view viewport while the loading layout is temporarily short.
+  for(const event of ['pointerdown','keydown','wheel','input','change'])root.addEventListener(event,markStaleInteraction,{capture:true,passive:event==='wheel'});
   const post = (type, data = {}) => vscode.postMessage({type,generation:state.generation,...data});
   const el = (tag, text, className) => {
     const element = document.createElement(tag);
@@ -92,8 +100,9 @@
     input.addEventListener('change',()=>{const n=Number(input.value);if(!Number.isSafeInteger(n)||n<0||n>max){input.value=String(value);return;}if(output){pendingInspection=null;outputIndex=null;inspection=null;}change(n);render();});
     wrapper.append(input);return wrapper;
   }
-  function tensorCard(node,output) {
+  function tensorCard(node,output,occurrence=0) {
     const card=el('article',undefined,'tensor-card');card.dataset.cardNode=node.id;
+    card.dataset.cardRole=output?'output':'input';card.dataset.cardOccurrence=String(occurrence);
     const header=el('div',undefined,'card-title');header.append(el('strong',node.name||node.op),el('span',shapeText(node),'pill'));card.append(header);
     card.append(el('p',`rank ${node.shape.length} · ${node.op} · ${node.status}`,'muted'));
     if(node.status==='unsupported'){card.append(el('p','此操作未获支持，无法证明精确坐标映射。','notice'));return card;}
@@ -151,26 +160,92 @@
         const row=rank>=2?index[rank-2]:0;const col=index[rank-1];
         return row>=slice.row&&row<slice.row+8&&col>=slice.col&&col<slice.col+16;
       }).length;line.append(el('p',`当前网格高亮 ${visible} / ${origin.indices.length} 个返回来源${visible<origin.indices.length?'；其余位于当前切片或显示范围之外。':''}`,'muted'));}
-      if(n&&origin.indices.length)line.append(button('定位首个来源坐标',()=>{const index=origin.indices[0];const slice=sliceFor(n);slice.prefix=index.slice(0,-2);slice.row=index.length>=2?index[index.length-2]:0;slice.col=index.length?index[index.length-1]:0;render();}));
+      if(n&&origin.indices.length){const jump=button('定位首个来源坐标',()=>{const index=origin.indices[0];const slice=sliceFor(n);slice.prefix=index.slice(0,-2);slice.row=index.length>=2?index[index.length-2]:0;slice.col=index.length?index[index.length-1]:0;render();});jump.dataset.originTarget=origin.node_id;line.append(jump);}
       box.append(line);
     }
     if(!inspection.origins.length)box.append(el('p','此节点没有直接输入来源。','muted'));
     return box;
   }
+  function viewKey(element) {
+    if(!element)return null;
+    const card=element.closest('[data-card-node]');
+    const scope=card?`${card.dataset.cardRole}:${card.dataset.cardNode}:${card.dataset.cardOccurrence}`:'';
+    if(element.matches('.operation-list'))return 'operations';
+    if(element.matches('.expression'))return `expression:${element.dataset.ownerNode}`;
+    if(element.matches('.grid-scroll'))return `grid:${scope}`;
+    if(element.matches('.cell'))return `cell:${scope}:${element.dataset.index}`;
+    if(element.matches('.operation'))return `operation:${element.dataset.node}`;
+    if(element.matches('textarea'))return `parameter:${element.getAttribute('aria-label')}`;
+    if(element.matches('input[type="number"]'))return `slice:${scope}:${element.dataset.axis}:${element.getAttribute('aria-label')}`;
+    if(element.matches('[data-role="show-all-nodes"]'))return 'visibility';
+    if(element.matches('select[aria-label="Kernel"]'))return 'kernel';
+    if(element.matches('.parameters summary'))return 'parameters-summary';
+    if(element.dataset.originTarget)return `origin:${element.dataset.originTarget}`;
+    if(element.matches('button'))return `button:${element.textContent}`;
+    return null;
+  }
+  function captureReadingPosition() {
+    const scrolls=new Map();
+    for(const element of root.querySelectorAll('.operation-list,.expression,.grid-scroll,textarea')) {
+      const key=viewKey(element);
+      if(key)scrolls.set(key,{top:element.scrollTop,left:element.scrollLeft,height:element.style.height,width:element.style.width});
+    }
+    const active=document.activeElement;
+    const key=root.contains(active)&&document.hasFocus()?viewKey(active):null;
+    const focus=key?{key}:null;
+    if(focus&&active.tagName==='TEXTAREA')Object.assign(focus,{start:active.selectionStart,end:active.selectionEnd,direction:active.selectionDirection});
+    return {x:window.scrollX,y:window.scrollY,scrolls,open:root.querySelector('.parameters')?.open,focus};
+  }
+  function restoreReadingPosition(position) {
+    const elements=Array.from(root.querySelectorAll('button,input,textarea,select,summary,.operation-list,.expression,.grid-scroll'));
+    const details=root.querySelector('.parameters');
+    if(details&&position.open!==undefined)details.open=position.open;
+    for(const element of elements) {
+      const saved=position.scrolls?.get(viewKey(element));
+      if(saved&&element.tagName==='TEXTAREA'){element.style.height=saved.height;element.style.width=saved.width;}
+    }
+    const focus=position.focus&&elements.find(element=>viewKey(element)===position.focus.key);
+    if(focus){focus.focus({preventScroll:true});if(focus.tagName==='TEXTAREA'&&position.focus.start!==undefined)focus.setSelectionRange(position.focus.start,position.focus.end,position.focus.direction);}
+    for(const element of elements) {
+      const saved=position.scrolls?.get(viewKey(element));
+      if(saved){element.scrollTop=saved.top;element.scrollLeft=saved.left;}
+    }
+    if(window.scrollX!==position.x||window.scrollY!==position.y)window.scrollTo(position.x,position.y);
+  }
   function render() {
-    root.replaceChildren();
+    if(renderedFile!==null) {
+      const current=captureReadingPosition();const saved=readingPositions.get(renderedFile);
+      if(!renderedStale||!saved)readingPositions.set(renderedFile,current);
+      else {
+        // A loading placeholder clamps scroll to zero. Keep the last full-view
+        // position unless the user is actively working in a surviving control.
+        saved.open=current.open;
+        for(const [key,value] of current.scrolls)saved.scrolls.set(key,value);
+        if(interactedWhileStale){saved.x=current.x;saved.y=current.y;saved.focus=current.focus;}
+      }
+    }
+    const file=state.file||'';
+    const position=readingPositions.get(file)??{x:0,y:0,scrolls:new Map()};
+    const fragment=document.createDocumentFragment();
+    renderContent(fragment);
+    // Build the complete replacement off-page, then restore reading state.
+    root.replaceChildren(fragment);
+    restoreReadingPosition(position);
+    renderedFile=file;renderedStale=!!state.stale;interactedWhileStale=false;
+  }
+  function renderContent(target) {
     const header=el('header');const title=el('div',undefined,'title-row');title.append(el('h1','TileTrace · 变换'),el('span',state.stale?'等待分析':'静态分析','status'));header.append(title);
     header.append(el('p','形状与逻辑坐标 · 不执行 kernel','muted'));
     const file=el('p',`${state.file||'尚未选择源文件'} · v${state.version||0}`,'file');file.title=state.file||'';header.append(file);
     const actions=el('div',undefined,'toolbar');actions.append(button('复制 Agent 提示词',()=>post('copyPrompt')));
     if(state.analysis?.kernels.length){const label=el('label',undefined,'kernel-select');label.append(el('span','Kernel'));const select=el('select');select.setAttribute('aria-label','Kernel');for(const name of state.analysis.kernels){const option=el('option',name);option.value=name;option.selected=name===state.analysis.kernel;select.append(option);}select.addEventListener('change',()=>{try{const fields=draft();post('applyParameters',{options:{kernel:select.value,parameters:JSON.parse(fields.parameters),input_shapes:JSON.parse(fields.input_shapes),program_ids:JSON.parse(fields.program_ids)}});}catch(error){localError='JSON 格式无效：'+error.message;render();}});label.append(select);actions.append(label);}
-    header.append(actions);root.append(header,parameters());
-    if(localError||state.error)root.append(el('p',localError||state.error,'error'));
-    if(state.stale){root.append(el('p','源码或参数已变化，坐标映射已清除。等待当前版本分析完成。','notice'));return;}
+    header.append(actions);target.append(header,parameters());
+    if(localError||state.error)target.append(el('p',localError||state.error,'error'));
+    if(state.stale){target.append(el('p','源码或参数已变化，坐标映射已清除。等待当前版本分析完成。','notice'));return;}
     const analysis=state.analysis;if(!analysis)return;
-    if(analysis.missing_parameters.length)root.append(el('p','待补参数：'+analysis.missing_parameters.join('、'),'notice'));
-    if(analysis.diagnostics.length){const box=section('诊断');for(const diagnostic of analysis.diagnostics)box.append(el('p',`${diagnostic.severity} · ${diagnostic.message}`,'diagnostic'));root.append(box);}
-    if(!analysis.nodes.length){root.append(el('p','没有可显示的操作。请检查 kernel、语法和诊断，补齐所需参数。','notice'));return;}
+    if(analysis.missing_parameters.length)target.append(el('p','待补参数：'+analysis.missing_parameters.join('、'),'notice'));
+    if(analysis.diagnostics.length){const box=section('诊断');for(const diagnostic of analysis.diagnostics)box.append(el('p',`${diagnostic.severity} · ${diagnostic.message}`,'diagnostic'));target.append(box);}
+    if(!analysis.nodes.length){target.append(el('p','没有可显示的操作。请检查 kernel、语法和诊断，补齐所需参数。','notice'));return;}
     const steps=operationNodes(analysis.nodes,!!state.show_all);const node=selected();
     const browse=section(`${state.show_all?'全部节点':'张量步骤'} · ${steps.length}`);
     const visibility=el('label',undefined,'visibility-control');const toggle=el('input');toggle.type='checkbox';toggle.checked=!!state.show_all;toggle.dataset.role='show-all-nodes';
@@ -179,15 +254,15 @@
     const position=steps.findIndex(n=>n.id===node?.id);const toolbar=el('div',undefined,'toolbar');
     const change=delta=>{const nextNode=steps[position+delta];if(nextNode)post('selectNode',{node_id:nextNode.id});};
     const prev=button('← 上一步',()=>change(-1));prev.disabled=position<=0;const next=button('下一步 →',()=>change(1));next.disabled=position<0||position>=steps.length-1;toolbar.append(prev,el('span',`${position+1} / ${steps.length}`,'muted'),next);browse.append(toolbar);
-    const list=el('div',undefined,'operation-list');for(const item of steps){const b=button(`${item.name||item.op} · ${item.op} ${shapeText(item)}`,()=>post('selectNode',{node_id:item.id}),'operation');b.dataset.node=item.id;b.classList.toggle('active',item.id===node?.id);b.setAttribute('aria-current',String(item.id===node?.id));list.append(b);}browse.append(list);root.append(browse);
-    if(!steps.length){root.append(el('p','当前没有张量步骤；可开启“显示全部节点”查看参数和其他分析节点。','notice'));return;}
+    const list=el('div',undefined,'operation-list');for(const item of steps){const b=button(`${item.name||item.op} · ${item.op} ${shapeText(item)}`,()=>post('selectNode',{node_id:item.id}),'operation');b.dataset.node=item.id;b.classList.toggle('active',item.id===node?.id);b.setAttribute('aria-current',String(item.id===node?.id));list.append(b);}browse.append(list);target.append(browse);
+    if(!steps.length){target.append(el('p','当前没有张量步骤；可开启“显示全部节点”查看参数和其他分析节点。','notice'));return;}
     if(!node)return;
-    const operation=section(`${node.name||node.op} · ${node.op}`);operation.append(el('pre',state.expressions?.[node.id]||node.name||node.op,'expression'),button(`查看源码 · 第 ${node.source.start_line} 行`,()=>post('revealSource',{node_id:node.id})));
-    const details=operationDetails(node,analysis.nodes);if(details)operation.append(details);root.append(operation);
+    const operation=section(`${node.name||node.op} · ${node.op}`);const expression=el('pre',state.expressions?.[node.id]||node.name||node.op,'expression');expression.dataset.ownerNode=node.id;operation.append(expression,button(`查看源码 · 第 ${node.source.start_line} 行`,()=>post('revealSource',{node_id:node.id})));
+    const details=operationDetails(node,analysis.nodes);if(details)operation.append(details);target.append(operation);
     const hidden=new Set(state.show_all?[]:contextInputs(node,analysis.nodes).map(input=>input.id));
     const dataInputs=node.inputs.map(id=>analysis.nodes.find(n=>n.id===id)).filter(input=>input&&!hidden.has(input.id));
-    const flow=el('div',undefined,'flow');const inputs=section('输入');for(const input of dataInputs)inputs.append(tensorCard(input,false));
-    if(!dataInputs.length)inputs.append(el('p',hidden.size?'标量输入已列入上方参数与属性。':'此操作创建逻辑形状，没有直接输入。','muted'));flow.append(inputs,el('div','↓ '+node.op,'flow-arrow'));const output=section('输出');output.append(tensorCard(node,true));flow.append(output);root.append(flow,mapping());
+    const flow=el('div',undefined,'flow');const inputs=section('输入');dataInputs.forEach((input,index)=>inputs.append(tensorCard(input,false,index)));
+    if(!dataInputs.length)inputs.append(el('p',hidden.size?'标量输入已列入上方参数与属性。':'此操作创建逻辑形状，没有直接输入。','muted'));flow.append(inputs,el('div','↓ '+node.op,'flow-arrow'));const output=section('输出');output.append(tensorCard(node,true));flow.append(output);target.append(flow,mapping());
   }
   window.addEventListener('message',event=>{
     const message=event.data;if(!message||typeof message!=='object')return;

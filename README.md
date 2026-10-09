@@ -4,7 +4,7 @@
 
 分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
 
-> 状态：0.1.1 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
+> 状态：0.1.2 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
 
 ## 当前功能
 
@@ -23,7 +23,7 @@
 
 ```powershell
 .\scripts\setup.ps1
-code --install-extension .\dist\tiletrace-0.1.1.vsix --force
+code --install-extension .\dist\tiletrace-0.1.2.vsix --force
 ```
 
 安装后打开本项目的 `examples/transforms.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
@@ -31,6 +31,8 @@ code --install-extension .\dist\tiletrace-0.1.1.vsix --force
 选择 `broadcast_demo`，点击 `matrix`，再点击输出网格中的任意坐标，即可观察两个广播输入的对应位置。切换到 `reshape_demo` 查看 reshape 与转置；`softmax_demo` 可补入 `{"N":6}`。
 
 `broadcast_demo` 默认显示 9 个张量步骤，折叠 7 个常量与参数节点。选中 `arange` 时，起点、终点和长度以文字属性展示；点击源码中的边界常量或归约轴会选中所属张量操作。前后导航遵循当前视图，底层完整图仍供 MCP 查询。
+
+同一文件中点击格子、切换步骤或收到分析结果时，会保留页面、列表和网格的滚动位置，以及参数区展开状态和输入焦点。重新分析时暂时缩短的等待页面不会覆盖原阅读位置；首次切换到另一文件从顶部开始。内容变短时，浏览器会将位置限制在新的可滚动范围内。
 
 输入参数与 `input_shapes` 是 JSON 对象；program IDs 是坐标数组。形状未知时先补充缺失参数。源文件仅被静态读取，不能通过修改示例参数取得执行数值。
 
