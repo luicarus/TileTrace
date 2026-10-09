@@ -1,5 +1,11 @@
 # 第一版验证记录
 
+## 0.1.4 界面修复：一维行索引方向
+
+2026-10-09：42 项 Node 测试、TypeScript 编译及 3 项分发检查通过，VSIX 重建成功；包内 viewer 与当前源文件逐字节一致。方向依据真实新增轴操作推断，未使用变量名；一维 shape 与坐标 rank 保持不变。行索引及 `[16, 1]` 单列矩阵完整展示 16 行；普通矩阵说明完整行列数和网格窗口。
+
+新增测试覆盖真实 FlashAttention 的 Q 行索引与 head 列索引、同一向量用于两个方向、纵向坐标点击、来源定位、方向切换时的窗口连续性；现有滚动/焦点回归通过。独立评审未发现新增问题。0.1.4 已通过 CLI 安装，本机扩展目录中的 viewer 与源码一致；尚未在实时 VS Code 宿主验收此次布局修复。
+
 ## 0.1.3 增量验证：FlashAttention 示例
 
 2026-10-09：83 项 Python 测试、39 项 Node 测试和 TypeScript 编译通过，无跳过；VSIX 与 wheel 0.1.3 构建成功，分发包检查通过。公开 demo 仅保留 `flash_attention_forward`，默认、非因果和尾块配置均无未支持节点。
@@ -57,7 +63,7 @@
 
 ## 安装后建议验证
 
-1. 安装 `dist/tiletrace-0.1.3.vsix`，在受信任工作区打开 `examples/flash_attention.py`。
+1. 安装 `dist/tiletrace-0.1.4.vsix`，在受信任工作区打开 `examples/flash_attention.py`。
 2. 查看 `query_rows`/`head_cols`、Q/K/V 的形状，以及 `scores` 的矩阵乘法和归约来源。
 3. 选择标注 `start_n=32` 的第二次循环操作；修改 `program_ids` 为 `[1]` 或关闭 `CAUSAL`，确认旧坐标映射在新分析完成前清除。
 4. 重启分析进程，复制新的 Agent 提示词；配置 MCP 使用相同会话目录，在新的 Codex 会话中查询当前选择。

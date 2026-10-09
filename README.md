@@ -4,7 +4,7 @@
 
 分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
 
-> 状态：0.1.3 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
+> 状态：0.1.4 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
 
 ## 当前功能
 
@@ -23,7 +23,7 @@
 
 ```powershell
 .\scripts\setup.ps1
-code --install-extension .\dist\tiletrace-0.1.3.vsix --force
+code --install-extension .\dist\tiletrace-0.1.4.vsix --force
 ```
 
 安装后打开本项目的 `examples/flash_attention.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
@@ -33,6 +33,8 @@ code --install-extension .\dist\tiletrace-0.1.3.vsix --force
 依次查看行列 `arange`、新增轴、`q`/`k`/`v`、K 转置、`scores`、softmax 的归约与广播、`accumulator`、`output`。点击矩阵乘法输出坐标可查看左右输入的整行/整列；循环内操作标注 `start_n=0` 或 `start_n=32`。示例使用在线 softmax，逐块更新结果，无需构建整个注意力矩阵。
 
 默认只展示张量步骤，常量与参数折叠到操作详情。选中 `arange` 时展示起点、终点和长度；源码中的边界常量或归约轴会选中所属张量操作。前后导航遵循当前视图，底层完整图仍供 MCP 查询。
+
+一维张量的行列方向根据实际新增轴用法展示：`query_rows[:, None]` 对应行轴，因此 `query_rows` 的 16 个索引纵向排列；`head_cols[None, :]` 对应列轴，横向排列。真实 shape 仍是 `[16]` 或 `[32]`。同一向量用于两个方向时，查看具体新增轴操作可获得相应方向；单独查看时会提示方向未指定。矩阵卡片同时说明完整行列数与网格显示窗口，避免将只显示的 8 行误读成整个 program 的行数。
 
 同一文件中点击格子、切换步骤或收到分析结果时，会保留页面、列表和网格的滚动位置，以及参数区展开状态和输入焦点。重新分析时暂时缩短的等待页面不会覆盖原阅读位置；首次切换到另一文件从顶部开始。内容变短时，浏览器会将位置限制在新的可滚动范围内。
 

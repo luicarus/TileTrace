@@ -14,6 +14,7 @@
   const drafts = new Map();
   const remembered = vscode.getState() || {};
   const readingPositions = new Map();
+  const consumerGraphs = new WeakMap();
   let renderedFile = null;
   let renderedStale = false;
   let interactedWhileStale = false;
@@ -102,6 +103,43 @@
     input.addEventListener('change',()=>{const n=Number(input.value);if(!Number.isSafeInteger(n)||n<0||n>max){input.value=String(value);return;}if(output){pendingInspection=null;outputIndex=null;inspection=null;}change(n);render();});
     wrapper.append(input);return wrapper;
   }
+  function vectorAxis(node) {
+    // Rank-one tensors have no inherent row/column direction. Use actual
+    // new-axis consumers to choose a presentation, while preserving shape.
+    const nodes=state.analysis?.nodes||[];
+    if(!consumerGraphs.has(nodes)) {
+      const graph=new Map();
+      for(const use of nodes)for(const id of use.inputs){if(!graph.has(id))graph.set(id,[]);graph.get(id).push(use);}
+      consumerGraphs.set(nodes,graph);
+    }
+    const consumers=consumerGraphs.get(nodes);
+    const expansionAxis=(use,id)=>{
+      if(use.status==='unsupported'||use.attrs?.mapping!=='expand_dims'||!use.inputs.includes(id)||use.shape.length!==2)return null;
+      const axes=use.attrs.axes;
+      return axes?.length===1&&axes[0]===1?0:axes?.length===1&&axes[0]===0?1:null;
+    };
+    const current=selected();const contextual=current&&expansionAxis(current,node.id);
+    if(contextual===0||contextual===1)return contextual;
+    const axes=new Set(),seen=new Set(),queue=[node];
+    for(let i=0;i<queue.length;i++) {
+      const tensor=queue[i];if(seen.has(tensor.id))continue;seen.add(tensor.id);
+      for(const use of consumers.get(tensor.id)||[]) {
+        if(use.status==='unsupported')continue;
+        const axis=expansionAxis(use,tensor.id);if(axis!==null)axes.add(axis);
+        if(use.shape.length===1&&use.shape[0]===tensor.shape[0]&&['identity','broadcast'].includes(use.attrs?.mapping)&&!seen.has(use.id))queue.push(use);
+      }
+    }
+    return axes.size===1?[...axes][0]:null;
+  }
+  function gridLayout(node) {
+    const rank=node.shape.length,axis=rank===1?vectorAxis(node):null,vertical=axis===0;
+    const rows=rank>=2?node.shape[rank-2]:vertical?node.shape[0]:1;
+    const cols=rank>=2?node.shape[rank-1]:rank===1&&!vertical?node.shape[0]:1;
+    const slice=sliceFor(node);
+    return {axis,vertical,rows,cols,maxRows:vertical||cols===1?16:8,maxCols:16,
+      startRow:Math.min(rank===1?(vertical?slice.col:0):slice.row,rows-1),
+      startCol:Math.min(vertical?0:slice.col,cols-1)};
+  }
   function tensorCard(node,output,occurrence=0) {
     const card=el('article',undefined,'tensor-card');card.dataset.cardNode=node.id;
     card.dataset.cardRole=output?'output':'input';card.dataset.cardOccurrence=String(occurrence);
@@ -112,21 +150,23 @@
     const shape=node.shape;const rank=shape.length;const slice=sliceFor(node);
     let total=1n;for(const size of shape)total*=BigInt(size);
     if(total===0n){card.append(el('p','空张量，没有可选坐标。','notice'));return card;}
+    const layout=gridLayout(node);const {rows,cols,maxRows,maxCols,vertical}=layout;
+    if(rank===1)card.append(el('p',layout.axis===0?'一维索引 · 在新增轴用法中对应矩阵行轴；纵向展示，形状仍为一维。':layout.axis===1?'一维索引 · 在新增轴用法中对应矩阵列轴；横向展示，形状仍为一维。':'一维向量 · 未指定行列方向；横向展示仅为排版。','muted'));
+    if(rank>=2)card.append(el('p',`当前切片包含 ${rows} 行 × ${cols} 列；网格窗口最多展示 ${maxRows} 行 × ${maxCols} 列。`,'muted'));
     const controls=el('div',undefined,'slice-controls');
     if(rank>2){card.append(el('p','前缀轴选择一个切片；网格对应最后两轴。','muted'));for(let axis=0;axis<rank-2;axis++)controls.append(numericControl(`轴 ${axis}`,axis,slice.prefix[axis],shape[axis]-1,n=>{slice.prefix[axis]=n;},output));}
-    const rows=rank>=2?shape[rank-2]:1;const cols=rank>=1?shape[rank-1]:1;
-    if(rows>8)controls.append(numericControl(`轴 ${rank-2} 起点`,rank-2,slice.row,rows-1,n=>{slice.row=n;},output));
-    if(cols>16)controls.append(numericControl(`轴 ${rank-1} 起点`,rank-1,slice.col,cols-1,n=>{slice.col=n;},output));
+    if(rows>maxRows)controls.append(numericControl(`轴 ${vertical?0:rank-2} 起点`,vertical?0:rank-2,vertical?slice.col:slice.row,rows-1,n=>{if(vertical)slice.col=n;else slice.row=n;},output));
+    if(cols>maxCols)controls.append(numericControl(`轴 ${rank-1} 起点`,rank-1,slice.col,cols-1,n=>{slice.col=n;},output));
     if(controls.childNodes.length)card.append(controls);
     const table=el('table',undefined,'index-grid');table.setAttribute('aria-label',`${node.name} 逻辑坐标`);
     const head=el('thead');const heading=el('tr');heading.append(el('th',rank>=2?`轴 ${rank-2} / ${rank-1}`:'坐标'));
-    const startRow=Math.min(slice.row,rows-1),startCol=Math.min(slice.col,cols-1);const shownRows=Math.min(rows-startRow,8),shownCols=Math.min(cols-startCol,16);
-    for(let col=0;col<shownCols;col++)heading.append(el('th',rank?startCol+col:'标量'));head.append(heading);table.append(head);
+    const {startRow,startCol}=layout;const shownRows=Math.min(rows-startRow,maxRows),shownCols=Math.min(cols-startCol,maxCols);
+    for(let col=0;col<shownCols;col++)heading.append(el('th',vertical?'索引':rank?startCol+col:'标量'));head.append(heading);table.append(head);
     const body=el('tbody');let displayed=0;
     for(let row=0;row<shownRows;row++){
-      const tr=el('tr');tr.append(el('th',rank>=2?startRow+row:'—'));
+      const tr=el('tr');tr.append(el('th',rank>=2||vertical?startRow+row:'—'));
       for(let col=0;col<shownCols;col++){
-        const index=rank===0?[]:rank===1?[startCol+col]:[...slice.prefix,startRow+row,startCol+col];
+        const index=rank===0?[]:rank===1?[vertical?startRow+row:startCol+col]:[...slice.prefix,startRow+row,startCol+col];
         const td=el('td');const cell=button(rank===0?'·':rank===1?String(index[0]):`${index[rank-2]},${index[rank-1]}`,()=>{
           if(!output)return;outputIndex=index;inspection=null;
           const request_id=String(++inspectionSequence);pendingInspection={request_id,generation:state.generation,node_id:node.id,index};
@@ -156,11 +196,11 @@
       line.append(el('p',origin.indices.slice(0,16).map(coordText).join(' · ')||'无输入坐标','coordinates'));
       line.append(el('p',`返回 ${origin.indices.length} / 总计 ${origin.total}${origin.truncated?' · 来源枚举已截断':''}${origin.indices.length>16?' · 文本只显示前 16 项':''}`,'muted'));
       if(folded.has(origin.node_id)){line.append(el('p','该标量输入已显示在参数与属性中。','muted'));box.append(line);continue;}
-      if(n){const slice=sliceFor(n);const rank=n.shape.length;const visible=origin.indices.filter(index=>{
+      if(n){const slice=sliceFor(n);const rank=n.shape.length;const layout=gridLayout(n);const visible=origin.indices.filter(index=>{
         if(rank===0)return true;
         if(rank>2&&!slice.prefix.every((v,i)=>v===index[i]))return false;
-        const row=rank>=2?index[rank-2]:0;const col=index[rank-1];
-        return row>=slice.row&&row<slice.row+8&&col>=slice.col&&col<slice.col+16;
+        const row=rank>=2?index[rank-2]:layout.vertical?index[0]:0;const col=layout.vertical?0:index[rank-1];
+        return row>=layout.startRow&&row<layout.startRow+layout.maxRows&&col>=layout.startCol&&col<layout.startCol+layout.maxCols;
       }).length;line.append(el('p',`当前网格高亮 ${visible} / ${origin.indices.length} 个返回来源${visible<origin.indices.length?'；其余位于当前切片或显示范围之外。':''}`,'muted'));}
       if(n&&origin.indices.length){const jump=button('定位首个来源坐标',()=>{const index=origin.indices[0];const slice=sliceFor(n);slice.prefix=index.slice(0,-2);slice.row=index.length>=2?index[index.length-2]:0;slice.col=index.length?index[index.length-1]:0;render();});jump.dataset.originTarget=origin.node_id;line.append(jump);}
       box.append(line);

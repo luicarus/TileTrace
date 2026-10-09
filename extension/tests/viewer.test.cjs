@@ -2,6 +2,45 @@ const test=require('node:test');const assert=require('node:assert/strict');const
 const node=(id,shape,inputs=[])=>({id,name:id,op:'reshape',shape,inputs,status:'resolved',source:{start_line:1,start_col:0,end_line:1,end_col:10},attrs:{},dtype:null});
 function setup(nodes) {const messages=[];const dom=new JSDOM('<main id="app"></main>',{runScripts:'outside-only'});dom.window.acquireVsCodeApi=()=>({postMessage:m=>messages.push(m),getState:()=>null,setState:()=>{}});dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/operations.js'),'utf8'));dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/viewer.js'),'utf8'));const send=data=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data}));send({type:'state',state:{analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:nodes[nodes.length-1].id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});return {dom,messages,send};}
 const inspectionResponse=(request,output,inspection)=>({type:'inspection',request_id:request.request_id,generation:request.generation,node_id:request.node_id,inspection:{node:output,...inspection}});
+
+test('one-dimensional row indices follow new-axis use without changing coordinate rank',()=>{
+ const rows=node('rows',[16]);const expanded=node('expanded',[16,1],['rows']);expanded.op='expand_dims';expanded.attrs={mapping:'expand_dims',axes:[1]};
+ const {dom,messages,send}=setup([rows,expanded]);const document=dom.window.document;
+ assert.equal(document.querySelector('[data-card-role="output"] tbody').rows.length,16);
+ send({type:'state',state:{analysis:{nodes:[rows,expanded],kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:'rows',stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
+ const card=document.querySelector('[data-card-role="output"]');
+ assert.equal(card.querySelectorAll('tbody tr').length,16);
+ assert.equal(card.querySelectorAll('tbody tr:first-child td').length,1);
+ assert.equal(card.querySelector('.pill').textContent,'[16]');
+ assert.match(card.textContent,/行轴/);
+ card.querySelector('[data-index="[15]"]').click();assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[15]);
+});
+
+test('vector direction follows uses and selected transform, never variable names',()=>{
+ const vector=node('query_rows',[16]);const rowUse=node('r',[16,1],['query_rows']);rowUse.op='expand_dims';rowUse.attrs={mapping:'expand_dims',axes:[1]};
+ const colUse=node('c',[1,16],['query_rows']);colUse.op='expand_dims';colUse.attrs={mapping:'expand_dims',axes:[0]};
+ const {dom,send}=setup([vector,rowUse,colUse]);const document=dom.window.document;
+ const select=id=>send({type:'state',state:{analysis:{nodes:[vector,rowUse,colUse],kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
+ select('query_rows');assert.match(document.querySelector('[data-card-role="output"]').textContent,/未指定行列方向/);
+ select('r');assert.equal(document.querySelector('[data-card-role="input"] tbody').rows.length,16);
+ select('c');assert.equal(document.querySelector('[data-card-role="input"] tbody').rows.length,1);
+ const unused=setup([node('query_rows',[16])]);assert.match(unused.dom.window.document.querySelector('[data-card-role="output"]').textContent,/未指定行列方向/);
+});
+
+test('vertical vector origins and windows preserve the same logical index across directions',()=>{
+ const vector=node('v',[64]);const r=node('r',[64,1],['v']);r.op='expand_dims';r.attrs={mapping:'expand_dims',axes:[1]};
+ const c=node('c',[1,64],['v']);c.op='expand_dims';c.attrs={mapping:'expand_dims',axes:[0]};
+ const {dom,send,messages}=setup([vector,c,r]);const document=dom.window.document;
+ document.querySelector('[data-output="true"][data-index="[0,0]"]').click();
+ send(inspectionResponse(messages.at(-1),r,{status:'exact',output_index:[0,0],origins:[{node_id:'v',indices:[[47]],total:1,truncated:false}]}));
+ document.querySelector('[data-origin-target="v"]').click();
+ let card=document.querySelector('[data-card-role="input"]');assert.ok(card.querySelector('[data-index="[47]"].origin'));assert.equal(card.querySelector('input[data-axis="0"]').value,'47');
+ const start=card.querySelector('input[data-axis="0"]');start.value='32';start.dispatchEvent(new dom.window.Event('change'));
+ card=document.querySelector('[data-card-role="input"]');assert.equal(card.querySelector('tbody tr').firstChild.textContent,'32');assert.ok(card.querySelector('[data-index="[47]"].origin'));
+ assert.match(document.querySelector('.mapping').textContent,/当前网格高亮 1 \/ 1/);
+ send({type:'state',state:{analysis:{nodes:[vector,c,r],kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:'c',stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
+ card=document.querySelector('[data-card-role="input"]');assert.equal(card.querySelector('tbody').rows.length,1);assert.equal(card.querySelector('input[data-axis="0"]').value,'32');assert.ok(card.querySelector('[data-index="[32]"]'));
+});
 function scrollModel(dom,clampLoading=false) {
  let x=0,y=0;
  Object.defineProperties(dom.window,{scrollX:{configurable:true,get:()=>x},scrollY:{configurable:true,get:()=>y}});
@@ -17,7 +56,15 @@ test('FlashAttention shows both KV iterations and dot origins as a row and colum
  const code='import sys,json; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from tiletrace import analyze,inspect_transform; a=analyze(Path(sys.argv[2]).read_text(encoding="utf-8")); n=[n for n in a["nodes"] if n["op"]=="dot"][2]; print(json.dumps({"analysis":a,"node":n,"inspection":inspect_transform(a,n["id"],[0,1])}))';
  const result=spawnSync(fs.existsSync(venv)?venv:'python',['-I','-S','-c',code,root,path.join(root,'examples/flash_attention.py')],{encoding:'utf8',cwd:root,windowsHide:true,timeout:10000});
  assert.equal(result.status,0,result.stderr);const data=JSON.parse(result.stdout);
- const {dom,send,messages}=setup(data.analysis.nodes);send({type:'state',state:{analysis:data.analysis,selected:data.node.id,stale:false,file:'attention.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
+ const {dom,send,messages}=setup(data.analysis.nodes);
+ const select=id=>send({type:'state',state:{analysis:data.analysis,selected:id,stale:false,file:'attention.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
+ select(data.analysis.nodes.find(n=>n.name==='query_rows').id);
+ assert.equal(dom.window.document.querySelector('[data-card-role="output"] tbody').rows.length,16);
+ select(data.analysis.nodes.find(n=>n.name==='head_cols').id);
+ assert.equal(dom.window.document.querySelector('[data-card-role="output"] tbody').rows.length,1);
+ select(data.analysis.nodes.find(n=>n.name==='q').id);
+ assert.match(dom.window.document.querySelector('[data-card-role="output"]').textContent,/16 行 × 32 列/);
+ select(data.node.id);
  const document=dom.window.document;const buttons=Array.from(document.querySelectorAll('.operation'));
  assert.ok(buttons.some(b=>/dot.*start_n=0/.test(b.textContent)));assert.ok(buttons.some(b=>/dot.*start_n=32/.test(b.textContent)));
  assert.match(document.body.textContent,/矩阵乘法归约长度/);
