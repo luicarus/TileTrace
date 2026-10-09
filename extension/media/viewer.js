@@ -33,6 +33,7 @@
   };
   const shapeText = node => node.shape.length ? '['+node.shape.join(', ')+']' : '[] · 标量';
   const coordText = index => '['+index.join(', ')+']';
+  const loopText = node => (node.attrs?.loops||[]).map(loop=>`${loop.variable}=${loop.value}`).join(' · ');
   function section(title) {const box=el('section',undefined,'section');box.append(el('h2',title));return box;}
   function selected() {
     const nodes=state.analysis?.nodes??[];
@@ -49,12 +50,13 @@
       return `${input.attrs.symbol||input.name}（符号）`;
     };
     const context=contextInputs(node,nodes);
+    if(loopText(node))fields.push(['循环分块',loopText(node)]);
     if(node.op==='arange') {
       const inputs=node.inputs.map(id=>nodes.find(n=>n.id===id));
       fields.push(['起点',inputs[0]?scalar(inputs[0]):display(node.attrs.start)],['终点',inputs[1]?scalar(inputs[1]):display(node.attrs.end)],['长度',display(node.shape[0])]);
     } else {
       for(const input of context)fields.push([input.op==='constant'?'常量':input.name,scalar(input)]);
-      for(const [key,label] of [['axes','轴'],['permutation','轴排列'],['keep_dims','保留归约轴'],['can_reorder','允许重排'],['fill_value','静态填充值']]) {
+      for(const [key,label] of [['axes','轴'],['permutation','轴排列'],['keep_dims','保留归约轴'],['can_reorder','允许重排'],['fill_value','静态填充值'],['contraction','矩阵乘法归约长度'],['target_dtype','目标类型']]) {
         if(Object.hasOwn(node.attrs,key))fields.push([label,display(node.attrs[key])]);
       }
     }
@@ -254,7 +256,7 @@
     const position=steps.findIndex(n=>n.id===node?.id);const toolbar=el('div',undefined,'toolbar');
     const change=delta=>{const nextNode=steps[position+delta];if(nextNode)post('selectNode',{node_id:nextNode.id});};
     const prev=button('← 上一步',()=>change(-1));prev.disabled=position<=0;const next=button('下一步 →',()=>change(1));next.disabled=position<0||position>=steps.length-1;toolbar.append(prev,el('span',`${position+1} / ${steps.length}`,'muted'),next);browse.append(toolbar);
-    const list=el('div',undefined,'operation-list');for(const item of steps){const b=button(`${item.name||item.op} · ${item.op} ${shapeText(item)}`,()=>post('selectNode',{node_id:item.id}),'operation');b.dataset.node=item.id;b.classList.toggle('active',item.id===node?.id);b.setAttribute('aria-current',String(item.id===node?.id));list.append(b);}browse.append(list);target.append(browse);
+    const list=el('div',undefined,'operation-list');for(const item of steps){const b=button(`${item.name||item.op} · ${item.op} ${shapeText(item)}${loopText(item)?' · '+loopText(item):''}`,()=>post('selectNode',{node_id:item.id}),'operation');b.dataset.node=item.id;b.classList.toggle('active',item.id===node?.id);b.setAttribute('aria-current',String(item.id===node?.id));list.append(b);}browse.append(list);target.append(browse);
     if(!steps.length){target.append(el('p','当前没有张量步骤；可开启“显示全部节点”查看参数和其他分析节点。','notice'));return;}
     if(!node)return;
     const operation=section(`${node.name||node.op} · ${node.op}`);const expression=el('pre',state.expressions?.[node.id]||node.name||node.op,'expression');expression.dataset.ownerNode=node.id;operation.append(expression,button(`查看源码 · 第 ${node.source.start_line} 行`,()=>post('revealSource',{node_id:node.id})));

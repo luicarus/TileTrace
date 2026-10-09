@@ -148,6 +148,8 @@ class _Analyzer:
         self.env = {}
         self.aliases = {'tl': 'triton.language', 'triton': 'triton'}
         self.program_ids = []
+        self.loops = []
+        self.loop_budget = 16
 
     def range(self, expr):
         def col(line, offset):
@@ -172,7 +174,9 @@ class _Analyzer:
                 'name': ast.get_source_segment(self.source, expr) or op,
                 'inputs': [n['id'] for n in inputs], 'shape': list(shape),
                 'status': _status(inputs, shape, status), 'source': self.range(expr),
-                'attrs': attrs or {}, 'dtype': dtype}
+                'attrs': dict(attrs or {}), 'dtype': dtype}
+        if self.loops:
+            node['attrs']['loops'] = [dict(loop) for loop in self.loops]
         self.result['nodes'].append(node)
         return node
 
@@ -368,7 +372,7 @@ class _Analyzer:
             return self.unsupported(expr, 'Expanded call arguments are unsupported.')
         if len(keywords) != len(expr.keywords):
             raise ValueError('Duplicate keyword operand.')
-        supported_methods = {'reshape', 'trans', 'permute', 'sum', 'max', 'expand_dims'}
+        supported_methods = {'reshape', 'trans', 'permute', 'sum', 'max', 'expand_dims', 'to', 'cast'}
         if method:
             if name not in supported_methods:
                 inputs = [self.expr(expr.func.value)] + [self.expr(a) for a in args]
@@ -498,6 +502,39 @@ class _Analyzer:
                     attrs['fill_value'] = value
                 attrs['mapping'] = 'broadcast'
             return self.node(expr, name, inputs, shape=shape, attrs=attrs, dtype=dtype)
+        if name == 'dot':
+            operands = bind(('input', 'other', 'acc', 'input_precision', 'allow_tf32',
+                             'max_num_imprecise_acc', 'out_dtype'), ('input', 'other'))
+            inputs = [evaluated(operands[k]) for k in ('input', 'other')]
+            options = [evaluated(value) for key, value in operands.items() if key not in ('input', 'other', 'acc')]
+            if any(n['status'] == 'unsupported' or n['shape'] for n in options):
+                return self.unsupported(expr, 'Unsupported dot option expression.', inputs)
+            left, right = [n['shape'] for n in inputs]
+            if len(left) != 2 or len(right) != 2:
+                return self.unsupported(expr, 'dot currently supports two-dimensional tensors only.', inputs)
+            if left[1] != right[0]:
+                return self.unsupported(expr, 'dot inner dimensions must be proven equal.', inputs)
+            shape = [left[0], right[1]]
+            if 'acc' in operands:
+                accumulator = evaluated(operands['acc'])
+                if self.value(accumulator) is not None:
+                    inputs.append(accumulator)
+                    if accumulator['shape'] != shape:
+                        return self.unsupported(expr, 'dot accumulator must match the output shape.', inputs, shape)
+            return self.node(expr, name, inputs, shape, {'mapping': 'dot', 'contraction': left[1]})
+        if name in ('to', 'cast'):
+            signature = ('dtype', 'fp_downcast_rounding', 'bitcast') if method else ('input', 'dtype', 'fp_downcast_rounding', 'bitcast')
+            operands = bind(signature, ('dtype',) if method else ('input', 'dtype'))
+            n = input_node if method else evaluated(operands['input'])
+            options = [evaluated(value) for key, value in operands.items() if key != 'input']
+            if any(option['status'] == 'unsupported' or option['shape'] for option in options):
+                return self.unsupported(expr, 'Unsupported cast option expression.', [n], n['shape'])
+            dtype_path = self.path(operands['dtype'])
+            dtypes = {'float16', 'bfloat16', 'float32', 'float64', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64', 'int1'}
+            dtype = dtype_path.removeprefix('triton.language.')
+            if not dtype_path.startswith('triton.language.') or dtype not in dtypes:
+                return self.unsupported(expr, 'cast requires a supported explicit Triton dtype.', [n], n['shape'])
+            return self.node(expr, 'cast', [n], n['shape'], {'mapping': 'identity', 'target_dtype': dtype}, dtype=dtype)
         if name in ('reshape', 'trans', 'permute', 'sum', 'max', 'expand_dims'):
             n = data()
             if n['status'] == 'unsupported':
@@ -647,6 +684,36 @@ class _Analyzer:
                         pointers.add(name)
         return pointers
 
+    def static_loop(self, statement):
+        iterator = statement.iter
+        if (not isinstance(statement.target, ast.Name) or statement.orelse
+                or not isinstance(iterator, ast.Call)
+                or self.path(iterator.func) != 'triton.language.static_range'
+                or iterator.keywords or not 1 <= len(iterator.args) <= 3
+                or any(isinstance(n, (ast.Break, ast.Continue, ast.Return)) for s in statement.body for n in ast.walk(s))):
+            self.invalidate(statement)
+            return
+        nodes = [self.expr(arg) for arg in iterator.args]
+        values = [self.value(n) for n in nodes]
+        if any(n['shape'] or n['status'] == 'unsupported' or not _integer(v) for n, v in zip(nodes, values)):
+            self.diagnostic('static_range requires known scalar integer bounds.', iterator)
+            self.invalidate(statement)
+            return
+        start, end, step = (0, values[0], 1) if len(values) == 1 else (values[0], values[1], values[2] if len(values) == 3 else 1)
+        count = max(0, (end - start + step - (1 if step > 0 else -1)) // step) if step else self.loop_budget + 1
+        if not step or count > self.loop_budget:
+            self.diagnostic('static_range exceeds the shared 16-iteration analysis budget or has a zero step.', iterator)
+            self.invalidate(statement)
+            return
+        self.loop_budget -= count
+        for iteration, value in enumerate(range(start, end, step)):
+            self.loops.append({'variable': statement.target.id, 'value': value, 'iteration': iteration})
+            try:
+                self.assign(statement.target, self.node(statement.target, 'constant', attrs={'value': value}))
+                self.statements(statement.body)
+            finally:
+                self.loops.pop()
+
     def statements(self, statements):
         for statement in statements:
             if isinstance(statement, ast.Assign):
@@ -662,6 +729,8 @@ class _Analyzer:
                 self.assign(statement.target, self.expr(expression))
             elif isinstance(statement, ast.Expr):
                 self.expr(statement.value)
+            elif isinstance(statement, ast.For):
+                self.static_loop(statement)
             elif isinstance(statement, ast.If):
                 condition = self.expr(statement.test)
                 value = self.value(condition)
@@ -826,6 +895,20 @@ def inspect_transform(analysis: dict, node_id: str, index: list[int] | None = No
                 if offset < 0 or any(d != 1 and d != node['shape'][offset + i] for i, d in enumerate(shape)):
                     return unavailable('Broadcast compatibility is not proven.')
                 origin(input_node, [[0 if d == 1 else index[offset + i] for i, d in enumerate(shape)]])
+        elif mapping == 'dot':
+            left, right = inputs[:2]
+            if (len(left['shape']) != 2 or len(right['shape']) != 2
+                    or left['shape'][1] != right['shape'][0]
+                    or node['shape'] != [left['shape'][0], right['shape'][1]]
+                    or len(inputs) > 3):
+                return unavailable('Dot shape compatibility is not proven.')
+            total = left['shape'][1]
+            origin(left, ([index[0], k] for k in range(min(total, limit))), total)
+            origin(right, ([k, index[1]] for k in range(min(total, limit))), total)
+            if len(inputs) == 3:
+                if inputs[2]['shape'] != node['shape']:
+                    return unavailable('Dot accumulator shape compatibility is not proven.')
+                origin(inputs[2], [list(index)])
         elif mapping == 'identity':
             if inputs[0]['shape'] != node['shape']:
                 return unavailable('Identity shape compatibility is not proven.')

@@ -57,7 +57,7 @@ test('Controller ignores old inspection errors after another click or closed doc
 });
 
 test('Controller keeps default and detailed source selection aligned with the published full graph',async()=>{
- const demo=require('./operations-fixture.cjs')();const sourceText=fs.readFileSync(path.resolve(__dirname,'../../examples/transforms.py'),'utf8');
+ const demo=require('./operations-fixture.cjs')();const sourceText=fs.readFileSync(path.resolve(__dirname,'fixtures/broadcast.py'),'utf8');
  const h=createController({root:os.tmpdir(),analysisNodes:demo.nodes,sourceText});
  try {
   h.controller.activateEditor(h.editor);await until(()=>h.messages.some(m=>m.type==='state'&&!m.state.stale));

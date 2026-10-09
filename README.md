@@ -4,18 +4,18 @@
 
 分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
 
-> 状态：0.1.2 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
+> 状态：0.1.3 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
 
 ## 当前功能
 
-- `arange`、新增轴、广播、reshape、transpose、sum/max，以及常见逐元素操作的静态形状分析。
+- `arange`、新增轴、广播、reshape、transpose、sum/max、二维 `tl.dot`、显式类型转换，以及常见逐元素操作的静态形状分析。
 - 点击输出坐标，查看参与该位置计算的直接输入坐标；大归约限定展示数量。
 - 支持符号尺寸和缺失参数提示，未知语法提供诊断。
 - VS Code 读取未保存缓冲区、跟随选择和参数变化、反向定位源码。
 - 每个编辑器会话独立同步状态；Codex 通过 MCP 查询，不自动猜测当前文件。
 - 默认只显示关键张量步骤，参数与常量折叠到操作详情；“显示全部节点”可以查看完整分析图。标量归约及依赖归约结果的计算仍然保留。
 
-展示的是逻辑坐标与依赖。它不表示实际数值执行、GPU 线程布局、内存搬运或性能测量。复杂循环、数据相关分支与跨函数调用不在第一版完整分析范围。
+展示的是逻辑坐标与依赖。它不表示实际数值执行、GPU 线程布局、内存搬运或性能测量。只展开已知整数边界的 `tl.static_range`，一次分析共享最多 16 次循环迭代；未知/超限循环、循环控制跳转、数据相关分支与跨函数调用仍保留诊断。FlashAttention 示例是单 batch/head 的教学前向实现，尚未在本机验证 GPU 数值或性能。
 
 ## Windows 快速开始
 
@@ -23,14 +23,16 @@
 
 ```powershell
 .\scripts\setup.ps1
-code --install-extension .\dist\tiletrace-0.1.2.vsix --force
+code --install-extension .\dist\tiletrace-0.1.3.vsix --force
 ```
 
-安装后打开本项目的 `examples/transforms.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
+安装后打开本项目的 `examples/flash_attention.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
 
-选择 `broadcast_demo`，点击 `matrix`，再点击输出网格中的任意坐标，即可观察两个广播输入的对应位置。切换到 `reshape_demo` 查看 reshape 与转置；`softmax_demo` 可补入 `{"N":6}`。
+示例只保留一个 `flash_attention_forward`，默认参数无需填写 JSON。每个 program 处理 16 个 Q 行，每次循环读取 32 个 K/V 行，head 维度为 32，序列长度为 64。`program_ids` 填 `[1]` 可切换到第二块 Q 行；`{"CAUSAL":false}` 可关闭因果掩码。
 
-`broadcast_demo` 默认显示 9 个张量步骤，折叠 7 个常量与参数节点。选中 `arange` 时，起点、终点和长度以文字属性展示；点击源码中的边界常量或归约轴会选中所属张量操作。前后导航遵循当前视图，底层完整图仍供 MCP 查询。
+依次查看行列 `arange`、新增轴、`q`/`k`/`v`、K 转置、`scores`、softmax 的归约与广播、`accumulator`、`output`。点击矩阵乘法输出坐标可查看左右输入的整行/整列；循环内操作标注 `start_n=0` 或 `start_n=32`。示例使用在线 softmax，逐块更新结果，无需构建整个注意力矩阵。
+
+默认只展示张量步骤，常量与参数折叠到操作详情。选中 `arange` 时展示起点、终点和长度；源码中的边界常量或归约轴会选中所属张量操作。前后导航遵循当前视图，底层完整图仍供 MCP 查询。
 
 同一文件中点击格子、切换步骤或收到分析结果时，会保留页面、列表和网格的滚动位置，以及参数区展开状态和输入焦点。重新分析时暂时缩短的等待页面不会覆盖原阅读位置；首次切换到另一文件从顶部开始。内容变短时，浏览器会将位置限制在新的可滚动范围内。
 
@@ -64,7 +66,7 @@ Windows 路径可使用正斜杠 `/`；若使用反斜杠，请在 TOML 双引�
 ## 命令行与开发
 
 ```powershell
-.\.venv\Scripts\python.exe -m tiletrace analyze examples/transforms.py --kernel reshape_demo
+.\.venv\Scripts\python.exe -m tiletrace analyze examples/flash_attention.py --kernel flash_attention_forward
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 

@@ -11,6 +11,25 @@ function scrollModel(dom,clampLoading=false) {
  return {set:(left,top)=>{x=left;y=top;},position:()=>[x,y]};
 }
 
+test('FlashAttention shows both KV iterations and dot origins as a row and column',()=>{
+ const {spawnSync}=require('node:child_process');const root=path.resolve(__dirname,'../..');
+ const venv=path.join(root,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
+ const code='import sys,json; from pathlib import Path; sys.path.insert(0,sys.argv[1]); from tiletrace import analyze,inspect_transform; a=analyze(Path(sys.argv[2]).read_text(encoding="utf-8")); n=[n for n in a["nodes"] if n["op"]=="dot"][2]; print(json.dumps({"analysis":a,"node":n,"inspection":inspect_transform(a,n["id"],[0,1])}))';
+ const result=spawnSync(fs.existsSync(venv)?venv:'python',['-I','-S','-c',code,root,path.join(root,'examples/flash_attention.py')],{encoding:'utf8',cwd:root,windowsHide:true,timeout:10000});
+ assert.equal(result.status,0,result.stderr);const data=JSON.parse(result.stdout);
+ const {dom,send,messages}=setup(data.analysis.nodes);send({type:'state',state:{analysis:data.analysis,selected:data.node.id,stale:false,file:'attention.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
+ const document=dom.window.document;const buttons=Array.from(document.querySelectorAll('.operation'));
+ assert.ok(buttons.some(b=>/dot.*start_n=0/.test(b.textContent)));assert.ok(buttons.some(b=>/dot.*start_n=32/.test(b.textContent)));
+ assert.match(document.body.textContent,/矩阵乘法归约长度/);
+ document.querySelector('[data-output="true"][data-index="[0,1]"]').click();
+ send(inspectionResponse(messages.at(-1),data.node,data.inspection));
+ // The 8x16 viewport shows part of the row and column; origins retain all 32.
+ assert.equal(document.querySelectorAll('[data-node="'+data.node.inputs[0]+'"].origin').length,16);
+ assert.equal(document.querySelectorAll('[data-node="'+data.node.inputs[1]+'"].origin').length,8);
+ assert.equal(data.inspection.origins[0].total,32);
+ assert.equal(data.inspection.origins[1].total,32);
+});
+
 test('output clicks and matching replies keep page/list/grid scroll, expanded parameters and focus',()=>{
  const inputs=[node('in',[8]),node('out',[2,4],['in'])];const {dom,messages,send}=setup(inputs);const document=dom.window.document;const scroll=scrollModel(dom);
  document.querySelector('.parameters').open=true;document.querySelector('.operation-list').scrollTop=80;document.querySelector('.expression').scrollTop=12;
