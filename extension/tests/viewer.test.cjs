@@ -3,6 +3,29 @@ const node=(id,shape,inputs=[])=>({id,name:id,op:'reshape',shape,inputs,status:'
 function setup(nodes) {const messages=[];const dom=new JSDOM('<main id="app"></main>',{runScripts:'outside-only'});dom.window.acquireVsCodeApi=()=>({postMessage:m=>messages.push(m),getState:()=>null,setState:()=>{}});dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/operations.js'),'utf8'));dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/viewer.js'),'utf8'));const send=data=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data}));send({type:'state',state:{analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:nodes[nodes.length-1].id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});return {dom,messages,send};}
 const inspectionResponse=(request,output,inspection)=>({type:'inspection',request_id:request.request_id,generation:request.generation,node_id:request.node_id,inspection:{node:output,...inspection}});
 
+test('flow keeps its operator and accessible meaning while CSS controls arrow direction',()=>{
+ const {dom}=setup([node('in',[8]),node('out',[2,4],['in'])]);const arrow=dom.window.document.querySelector('.flow-arrow');
+ assert.ok(arrow.querySelector('.flow-direction'));
+ assert.equal(arrow.querySelector('.flow-operator').textContent,'reshape');
+ assert.equal(arrow.getAttribute('role'),'img');
+ assert.match(arrow.getAttribute('aria-label'),/输入.*reshape.*输出/);
+ assert.equal(arrow.querySelector('.flow-direction').getAttribute('aria-hidden'),'true');
+});
+
+test('tensor cards keep one metadata line and move directions and counts to tooltips',()=>{
+ const rows=node('rows',[16]);const expanded=node('expanded',[16,1],['rows']);expanded.op='expand_dims';expanded.attrs={mapping:'expand_dims',axes:[1]};
+ const {dom,messages}=setup([rows,expanded]);const document=dom.window.document;
+ for(const card of document.querySelectorAll('.tensor-card')) {
+  assert.equal(card.querySelectorAll(':scope > p').length,1);
+  assert.doesNotMatch(card.textContent,/一维索引|长度超过|每卡最多|显示.*总计|当前切片包含/);
+  assert.match(card.querySelector('.pill').title,/16/);assert.match(card.querySelector('.grid-scroll').title,/显示 6.*总计 16/);
+  assert.match(card.querySelector('table').getAttribute('aria-label'),/显示 6.*总计 16/);
+  assert.ok(card.querySelector('[data-role="toggle-grid-window"]'));
+ }
+ assert.match(document.querySelector('[data-card-role="input"] .pill').title,/行轴/);
+ document.querySelector('[data-output="true"][data-index="[15,0]"]').click();assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[15,0]);
+});
+
 test('long vectors show head and tail with an accessible ellipsis and exact tail coordinates',()=>{
  for(const size of [8,9,16,1000000]) {
   const v=node('v',[size]);const {dom,messages}=setup([v]);const card=dom.window.document.querySelector('[data-card-role="output"]');
@@ -59,7 +82,7 @@ test('one-dimensional row indices follow new-axis use without changing coordinat
  assert.equal(card.querySelectorAll('tbody tr').length,7);
  assert.equal(card.querySelectorAll('tbody tr:first-child td').length,1);
  assert.equal(card.querySelector('.pill').textContent,'[16]');
- assert.match(card.textContent,/行轴/);
+ assert.match(card.querySelector('.pill').title,/行轴/);
  card.querySelector('[data-index="[15]"]').click();assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[15]);
 });
 
@@ -68,10 +91,10 @@ test('vector direction follows uses and selected transform, never variable names
  const colUse=node('c',[1,16],['query_rows']);colUse.op='expand_dims';colUse.attrs={mapping:'expand_dims',axes:[0]};
  const {dom,send}=setup([vector,rowUse,colUse]);const document=dom.window.document;
  const select=id=>send({type:'state',state:{analysis:{nodes:[vector,rowUse,colUse],kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});
- select('query_rows');assert.match(document.querySelector('[data-card-role="output"]').textContent,/未指定行列方向/);
+ select('query_rows');assert.match(document.querySelector('[data-card-role="output"] .pill').title,/未指定行列方向/);
  select('r');assert.equal(document.querySelector('[data-card-role="input"] tbody').rows.length,7);
  select('c');assert.equal(document.querySelector('[data-card-role="input"] tbody').rows.length,1);
- const unused=setup([node('query_rows',[16])]);assert.match(unused.dom.window.document.querySelector('[data-card-role="output"]').textContent,/未指定行列方向/);
+ const unused=setup([node('query_rows',[16])]);assert.match(unused.dom.window.document.querySelector('[data-card-role="output"] .pill').title,/未指定行列方向/);
 });
 
 test('vertical vector origins and windows preserve the same logical index across directions',()=>{
@@ -110,7 +133,7 @@ test('FlashAttention shows both KV iterations and dot origins as a row and colum
  select(data.analysis.nodes.find(n=>n.name==='head_cols').id);
  assert.equal(dom.window.document.querySelector('[data-card-role="output"] tbody').rows.length,1);
  select(data.analysis.nodes.find(n=>n.name==='q').id);
- assert.match(dom.window.document.querySelector('[data-card-role="output"]').textContent,/16 行 × 32 列/);
+ assert.match(dom.window.document.querySelector('[data-card-role="output"] .pill').title,/16 行 × 32 列/);
  select(data.node.id);
  const document=dom.window.document;const buttons=Array.from(document.querySelectorAll('.operation'));
  assert.ok(buttons.some(b=>/dot.*start_n=0/.test(b.textContent)));assert.ok(buttons.some(b=>/dot.*start_n=32/.test(b.textContent)));
@@ -170,7 +193,7 @@ test('intentional parameter input during loading keeps the new position and care
  assert.equal(scroll.position()[1],0);assert.equal(document.activeElement,document.querySelector('textarea'));assert.equal(document.activeElement.selectionStart,3);assert.equal(document.activeElement.selectionEnd,7);
 });
 test('output click requests exact index and highlights immediate input origin',()=>{const {dom,messages,send}=setup([node('in',[8]),node('out',[2,4],['in'])]);dom.window.document.querySelector('[data-output="true"][data-index="[0,1]"]').click();assert.equal(messages.at(-1).type,'inspectIndex');assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[0,1]);send(inspectionResponse(messages.at(-1),node('out',[2,4],['in']),{status:'exact',output_index:[0,1],origins:[{node_id:'in',indices:[[1]],total:1,truncated:false}]}));assert.ok(dom.window.document.querySelector('[data-node="in"][data-index="[1]"]').classList.contains('origin'));send({type:'state',state:{stale:true,file:'a.py',version:2}});assert.equal(dom.window.document.querySelectorAll('.origin').length,0);assert.equal(dom.window.document.querySelectorAll('[data-output="true"]').length,0);});
-test('huge tensors stay capped, rank three supports prefix slices, symbolic tensors have no grid',()=>{const {dom,messages}=setup([node('x',[4,1000000,1000000])]);assert.ok(dom.window.document.querySelectorAll('[data-index]').length<=128);const slice=dom.window.document.querySelector('input[data-axis="0"]');assert.ok(slice);slice.value='3';slice.dispatchEvent(new dom.window.Event('change'));const cell=dom.window.document.querySelector('[data-output="true"]');cell.click();assert.equal(messages.at(-1).index[0],3);assert.match(dom.window.document.body.textContent,/显示.*总计/);const symbolic=setup([node('s',['BLOCK',4])]);assert.equal(symbolic.dom.window.document.querySelectorAll('[data-index]').length,0);assert.match(symbolic.dom.window.document.body.textContent,/符号/);});
+test('huge tensors stay capped, rank three supports prefix slices, symbolic tensors have no grid',()=>{const {dom,messages}=setup([node('x',[4,1000000,1000000])]);assert.ok(dom.window.document.querySelectorAll('[data-index]').length<=128);const slice=dom.window.document.querySelector('input[data-axis="0"]');assert.ok(slice);slice.value='3';slice.dispatchEvent(new dom.window.Event('change'));const cell=dom.window.document.querySelector('[data-output="true"]');cell.click();assert.equal(messages.at(-1).index[0],3);assert.match(dom.window.document.querySelector(".grid-scroll").title,/显示.*总计/);const symbolic=setup([node('s',['BLOCK',4])]);assert.equal(symbolic.dom.window.document.querySelectorAll('[data-index]').length,0);assert.match(symbolic.dom.window.document.body.textContent,/符号/);});
 test('malicious source text is rendered literally and unavailable mappings clear origins',()=>{const x=node('x',[1]);x.name='<img src=x onerror=alert(1)>';const {dom,messages,send}=setup([x]);assert.equal(dom.window.document.querySelectorAll('img').length,0);dom.window.document.querySelector('[data-output="true"]').click();send(inspectionResponse(messages.at(-1),x,{status:'unavailable',output_index:[0],origins:[],message:'symbolic mapping'}));assert.match(dom.window.document.body.textContent,/symbolic mapping/);});
 test('off-slice origins are explained and navigation reveals the mapped input cell',()=>{
  const {dom,messages,send}=setup([node('in',[4,2,4]),node('out',[2,4],['in'])]);

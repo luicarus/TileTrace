@@ -167,7 +167,7 @@
   function tensorCard(node,output,occurrence=0) {
     const card=el('article',undefined,'tensor-card');card.dataset.cardNode=node.id;
     card.dataset.cardRole=output?'output':'input';card.dataset.cardOccurrence=String(occurrence);
-    const header=el('div',undefined,'card-title');header.append(el('strong',node.name||node.op),el('span',shapeText(node),'pill'));card.append(header);
+    const header=el('div',undefined,'card-title');const shapeBadge=el('span',shapeText(node),'pill');header.append(el('strong',node.name||node.op),shapeBadge);card.append(header);
     card.append(el('p',`rank ${node.shape.length} · ${node.op} · ${node.status}`,'muted'));
     if(node.status==='unsupported'){card.append(el('p','此操作未获支持，无法证明精确坐标映射。','notice'));return card;}
     if(!node.shape.every(dim=>Number.isSafeInteger(dim)&&dim>=0)) {card.append(el('p','符号形状：补充参数后可显示逻辑坐标。','notice'));return card;}
@@ -175,11 +175,10 @@
     let total=1n;for(const size of shape)total*=BigInt(size);
     if(total===0n){card.append(el('p','空张量，没有可选坐标。','notice'));return card;}
     const layout=gridLayout(node);const {rows,cols,maxRows,maxCols,vertical}=layout;
-    if(rank===1)card.append(el('p',layout.axis===0?'一维索引 · 在新增轴用法中对应矩阵行轴；纵向展示，形状仍为一维。':layout.axis===1?'一维索引 · 在新增轴用法中对应矩阵列轴；横向展示，形状仍为一维。':'一维向量 · 未指定行列方向；横向展示仅为排版。','muted'));
-    if(rank>=2)card.append(el('p',`当前切片包含 ${rows} 行 × ${cols} 列；展开窗口最多展示 ${maxRows} 行 × ${maxCols} 列。`,'muted'));
+    shapeBadge.title=rank===0?'标量，shape []':rank===1?(layout.axis===0?'一维索引，对应矩阵行轴，纵向展示；shape '+shapeText(node):layout.axis===1?'一维索引，对应矩阵列轴，横向展示；shape '+shapeText(node):'一维向量，未指定行列方向；shape '+shapeText(node)):`当前切片包含 ${rows} 行 × ${cols} 列；展开窗口最多展示 ${maxRows} 行 × ${maxCols} 列。`;
     const controls=el('div',undefined,'slice-controls');
-    if(rows>8||cols>8){const toggle=button(slice.expanded?'收起为首尾概览':'展开显示窗口',()=>gridMode(node,output,!slice.expanded));toggle.dataset.role='toggle-grid-window';toggle.setAttribute('aria-expanded',String(slice.expanded));controls.append(toggle);}
-    if(rank>2){card.append(el('p','前缀轴选择一个切片；网格对应最后两轴。','muted'));for(let axis=0;axis<rank-2;axis++)controls.append(numericControl(`轴 ${axis}`,axis,slice.prefix[axis],shape[axis]-1,n=>{slice.prefix[axis]=n;},output));}
+    if(rows>8||cols>8){const toggle=button(slice.expanded?'收起为首尾概览':'展开显示窗口',()=>gridMode(node,output,!slice.expanded));toggle.dataset.role='toggle-grid-window';toggle.setAttribute('aria-expanded',String(slice.expanded));toggle.title='长度超过 8 时概览保留首尾各 3 项；展开查看中间坐标。';controls.append(toggle);}
+    if(rank>2){controls.title='前缀轴选择一个切片；网格对应最后两轴。';for(let axis=0;axis<rank-2;axis++)controls.append(numericControl(`轴 ${axis}`,axis,slice.prefix[axis],shape[axis]-1,n=>{slice.prefix[axis]=n;},output));}
     if(slice.expanded&&rows>maxRows)controls.append(numericControl(`轴 ${vertical?0:rank-2} 起点`,vertical?0:rank-2,vertical?slice.col:slice.row,rows-1,n=>{if(vertical)slice.col=n;else slice.row=n;},output));
     if(slice.expanded&&cols>maxCols)controls.append(numericControl(`轴 ${rank-1} 起点`,rank-1,slice.col,cols-1,n=>{slice.col=n;},output));
     if(controls.childNodes.length)card.append(controls);
@@ -208,9 +207,9 @@
       }
       body.append(tr);
     }
-    table.append(body);const scroll=el('div',undefined,'grid-scroll');scroll.append(table);card.append(scroll);
-    if(!slice.expanded&&(rows>8||cols>8))card.append(el('p','长度超过 8 时显示前 3 项和后 3 项；省略号表示中间坐标，可点击展开。','muted'));
-    card.append(el('p',`显示 ${displayed} 个逻辑坐标 / 总计 ${total.toString()} 个${rank>2?'（当前切片）':''}；每卡最多 128 个。`,'muted'));
+    table.append(body);const scroll=el('div',undefined,'grid-scroll');scroll.title=`显示 ${displayed} 个逻辑坐标 / 总计 ${total.toString()} 个${rank>2?'（当前切片）':''}；每卡最多 128 个。`;
+    table.setAttribute('aria-label',`${node.name} 逻辑坐标；${shapeBadge.title} ${scroll.title}${rank>2?' '+controls.title:''}`);
+    scroll.append(table);card.append(scroll);
     return card;
   }
   function mapping() {
@@ -335,7 +334,10 @@
     const hidden=new Set(state.show_all?[]:contextInputs(node,analysis.nodes).map(input=>input.id));
     const dataInputs=node.inputs.map(id=>analysis.nodes.find(n=>n.id===id)).filter(input=>input&&!hidden.has(input.id));
     const flow=el('div',undefined,'flow');const inputs=section('输入');dataInputs.forEach((input,index)=>inputs.append(tensorCard(input,false,index)));
-    if(!dataInputs.length)inputs.append(el('p',hidden.size?'标量输入已列入上方参数与属性。':'此操作创建逻辑形状，没有直接输入。','muted'));flow.append(inputs,el('div','↓ '+node.op,'flow-arrow'));const output=section('输出');output.append(tensorCard(node,true));flow.append(output);target.append(flow,mapping());
+    if(!dataInputs.length)inputs.append(el('p',hidden.size?'标量输入已列入上方参数与属性。':'此操作创建逻辑形状，没有直接输入。','muted'));
+    const arrow=el('div',undefined,'flow-arrow');arrow.setAttribute('role','img');arrow.setAttribute('aria-label',`输入经过 ${node.op} 得到输出`);
+    const direction=el('span',undefined,'flow-direction');direction.setAttribute('aria-hidden','true');const operator=el('span',node.op,'flow-operator');operator.setAttribute('aria-hidden','true');arrow.append(direction,operator);
+    flow.append(inputs,arrow);const output=section('输出');output.append(tensorCard(node,true));flow.append(output);target.append(flow,mapping());
   }
   window.addEventListener('message',event=>{
     const message=event.data;if(!message||typeof message!=='object')return;
