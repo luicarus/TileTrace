@@ -15,6 +15,8 @@
   const remembered = vscode.getState() || {};
   const readingPositions = new Map();
   const consumerGraphs = new WeakMap();
+  let flowLayoutFrame=null;
+  const flowObserver=typeof ResizeObserver==='function'?new ResizeObserver(()=>queueFlowLayout()):null;
   let renderedFile = null;
   let renderedStale = false;
   let interactedWhileStale = false;
@@ -284,6 +286,27 @@
     }
     if(window.scrollX!==position.x||window.scrollY!==position.y)window.scrollTo(position.x,position.y);
   }
+  function queueFlowLayout() {
+    if(flowLayoutFrame!==null)return;
+    if(typeof requestAnimationFrame!=='function'){fitFlowLayout();return;}
+    flowLayoutFrame=requestAnimationFrame(()=>{flowLayoutFrame=null;fitFlowLayout();});
+  }
+  function fitFlowLayout() {
+    const flow=root.querySelector('.flow');if(!flow)return;
+    const input=flow.querySelector('.flow-inputs'),output=flow.querySelector('.flow-output'),arrow=flow.querySelector('.flow-arrow');
+    if(!input||!output||!arrow)return;
+    const style=getComputedStyle(root);const available=root.getBoundingClientRect().width-(parseFloat(style.paddingLeft)||0)-(parseFloat(style.paddingRight)||0);
+    if(available<=0)return;
+    const gap=parseFloat(getComputedStyle(flow).gap)||12;
+    const needed=input.getBoundingClientRect().width+output.getBoundingClientRect().width+arrow.getBoundingClientRect().width+2*gap;
+    const layout=Math.ceil(needed)<=available?'horizontal':'vertical';
+    if(flow.dataset.layout!==layout)flow.dataset.layout=layout;
+  }
+  function observeFlowLayout() {
+    flowObserver?.disconnect();fitFlowLayout();
+    if(flowObserver){flowObserver.observe(root);for(const part of root.querySelectorAll('.flow-inputs,.flow-output'))flowObserver.observe(part);}
+  }
+  window.addEventListener('resize',fitFlowLayout);
   function render() {
     if(renderedFile!==null) {
       const current=captureReadingPosition();const saved=readingPositions.get(renderedFile);
@@ -302,6 +325,7 @@
     renderContent(fragment);
     // Build the complete replacement off-page, then restore reading state.
     root.replaceChildren(fragment);
+    observeFlowLayout();
     restoreReadingPosition(position);
     renderedFile=file;renderedStale=!!state.stale;interactedWhileStale=false;
   }
@@ -333,11 +357,11 @@
     const details=operationDetails(node,analysis.nodes);if(details)operation.append(details);target.append(operation);
     const hidden=new Set(state.show_all?[]:contextInputs(node,analysis.nodes).map(input=>input.id));
     const dataInputs=node.inputs.map(id=>analysis.nodes.find(n=>n.id===id)).filter(input=>input&&!hidden.has(input.id));
-    const flow=el('div',undefined,'flow');const inputs=section('输入');dataInputs.forEach((input,index)=>inputs.append(tensorCard(input,false,index)));
+    const flow=el('div',undefined,'flow');const inputs=section('输入');inputs.classList.add('flow-inputs');dataInputs.forEach((input,index)=>inputs.append(tensorCard(input,false,index)));
     if(!dataInputs.length)inputs.append(el('p',hidden.size?'标量输入已列入上方参数与属性。':'此操作创建逻辑形状，没有直接输入。','muted'));
     const arrow=el('div',undefined,'flow-arrow');arrow.setAttribute('role','img');arrow.setAttribute('aria-label',`输入经过 ${node.op} 得到输出`);
     const direction=el('span',undefined,'flow-direction');direction.setAttribute('aria-hidden','true');const operator=el('span',node.op,'flow-operator');operator.setAttribute('aria-hidden','true');arrow.append(direction,operator);
-    flow.append(inputs,arrow);const output=section('输出');output.append(tensorCard(node,true));flow.append(output);target.append(flow,mapping());
+    flow.append(inputs,arrow);const output=section('输出');output.classList.add('flow-output');output.append(tensorCard(node,true));flow.append(output);target.append(flow,mapping());
   }
   window.addEventListener('message',event=>{
     const message=event.data;if(!message||typeof message!=='object')return;

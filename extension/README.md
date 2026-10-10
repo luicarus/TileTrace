@@ -39,7 +39,7 @@ npm.cmd test
 npm.cmd run package
 ```
 
-`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.7.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
+`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.8.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
 
 在 VS Code 打开仓库后选择调试配置 **TileTrace Extension** 并按 F5；先在 `extension/` 安装开发依赖。扩展开发宿主中打开 `examples/` 的 Triton 文件。通过 VS Code 扩展面板的 **Install from VSIX…** 手动安装生成的包。
 

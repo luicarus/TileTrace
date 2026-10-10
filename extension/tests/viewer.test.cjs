@@ -1,7 +1,35 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const {JSDOM}=require('jsdom');
 const node=(id,shape,inputs=[])=>({id,name:id,op:'reshape',shape,inputs,status:'resolved',source:{start_line:1,start_col:0,end_line:1,end_col:10},attrs:{},dtype:null});
-function setup(nodes) {const messages=[];const dom=new JSDOM('<main id="app"></main>',{runScripts:'outside-only'});dom.window.acquireVsCodeApi=()=>({postMessage:m=>messages.push(m),getState:()=>null,setState:()=>{}});dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/operations.js'),'utf8'));dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/viewer.js'),'utf8'));const send=data=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data}));send({type:'state',state:{analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:nodes[nodes.length-1].id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});return {dom,messages,send};}
+function setup(nodes,configure=()=>{}) {const messages=[];const dom=new JSDOM('<main id="app"></main>',{runScripts:'outside-only'});dom.window.acquireVsCodeApi=()=>({postMessage:m=>messages.push(m),getState:()=>null,setState:()=>{}});configure(dom.window);dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/operations.js'),'utf8'));dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/viewer.js'),'utf8'));const send=data=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data}));send({type:'state',state:{analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:nodes[nodes.length-1].id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});return {dom,messages,send};}
 const inspectionResponse=(request,output,inspection)=>({type:'inspection',request_id:request.request_id,generation:request.generation,node_id:request.node_id,inspection:{node:output,...inspection}});
+
+test('ResizeObserver observes current content only and handles loading without altering selection',()=>{
+ let available=600,notify,observed=[];const nodes=[node('in',[8]),node('out',[8],['in'])];
+ const {dom,send}=setup(nodes,window=>{
+  window.ResizeObserver=class {constructor(callback){notify=callback;}observe(element){observed.push(element);}disconnect(){observed=[];}};
+  window.HTMLElement.prototype.getBoundingClientRect=function(){return {width:this.id==='app'?available:this.classList.contains('flow-inputs')||this.classList.contains('flow-output')?200:this.classList.contains('flow-arrow')?64:0,height:100,x:0,y:0};};
+ });
+ const document=dom.window.document;assert.equal(document.querySelector('.flow').dataset.layout,'horizontal');assert.equal(observed.length,3);
+ const oldFlow=document.querySelector('.flow');const state={analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:'out',stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]};
+ send({type:'state',state});assert.ok(observed.every(element=>element.isConnected));assert.notEqual(document.querySelector('.flow'),oldFlow);
+ const cell=document.querySelector('[data-output="true"][data-index="[7]"]');cell.click();const current=document.querySelector('[data-output="true"][data-index="[7]"]');
+ available=350;notify();assert.equal(document.querySelector('.flow').dataset.layout,'vertical');assert.equal(document.querySelector('.selected-cell'),current);
+ send({type:'state',state:{...state,stale:true,version:2}});notify();assert.equal(document.querySelector('.flow'),null);assert.deepEqual(observed,[document.getElementById('app')]);
+});
+
+test('flow fits actual content widths and resizing preserves selection and DOM identity',()=>{
+ const {dom,messages}=setup([node('in',[16,1]),node('out',[16,1],['in'])]);const document=dom.window.document;
+ let available=510,inputWidth=180,outputWidth=180;
+ dom.window.HTMLElement.prototype.getBoundingClientRect=function(){return {width:this.id==='app'?available:this.classList.contains('flow-inputs')?inputWidth:this.classList.contains('flow-output')?outputWidth:this.classList.contains('flow-arrow')?64:0,height:100,x:0,y:0};};
+ const cell=document.querySelector('[data-output="true"][data-index="[15,0]"]');cell.click();const request=messages.at(-1);const selected=document.querySelector('[data-output="true"][data-index="[15,0]"]');
+ const resize=()=>dom.window.dispatchEvent(new dom.window.Event('resize'));
+ resize();assert.equal(document.querySelector('.flow').dataset.layout,'horizontal');
+ available=350;resize();assert.equal(document.querySelector('.flow').dataset.layout,'vertical');
+ available=800;outputWidth=420;resize();assert.equal(document.querySelector('.flow').dataset.layout,'horizontal');
+ available=600;resize();assert.equal(document.querySelector('.flow').dataset.layout,'vertical');
+ assert.equal(document.querySelector('[data-output="true"][data-index="[15,0]"]'),selected);
+ assert.ok(selected.classList.contains('selected-cell'));assert.equal(messages.at(-1),request);
+});
 
 test('flow keeps its operator and accessible meaning while CSS controls arrow direction',()=>{
  const {dom}=setup([node('in',[8]),node('out',[2,4],['in'])]);const arrow=dom.window.document.querySelector('.flow-arrow');
