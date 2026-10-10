@@ -4,7 +4,7 @@
 
 分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
 
-> 状态：0.1.8 早期版本。VS Code 扩展尚未发布到扩展市场，请按下方说明从源码安装；CLI 与 MCP 服务可直接使用。
+> 当前版本：0.1.8。支持本地 VSIX 安装。
 
 ## 当前功能
 
@@ -17,16 +17,26 @@
 
 展示的是逻辑坐标与依赖。它不表示实际数值执行、GPU 线程布局、内存搬运或性能测量。只展开已知整数边界的 `tl.static_range`，一次分析共享最多 16 次循环迭代；未知/超限循环、循环控制跳转、数据相关分支与跨函数调用仍保留诊断。FlashAttention 示例是单 batch/head 的教学前向实现，尚未在本机验证 GPU 数值或性能。
 
-## Windows 快速开始
+## 安装与快速开始
 
-在本项目目录执行：
+准备 Python 3.10+。从源码构建还需要 Node.js 与 npm，在本仓库目录执行：
 
 ```powershell
 .\scripts\setup.ps1
 code --install-extension .\dist\tiletrace-0.1.8.vsix --force
 ```
 
-安装后打开本项目的 `examples/flash_attention.py`。面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
+已有 VSIX 时，也可以在 VS Code 扩展面板的菜单中选择 **Install from VSIX…** 安装。
+
+安装后打开受信任的工作区及包含 `@triton.jit` kernel 的已保存 `.py` 文件。选中源码表达式，在右侧面板查看输入、输出形状；点击输出坐标查看直接输入来源。
+
+扩展自带静态分析 worker，无需安装 Triton、NumPy 或使用 GPU。Python 路径未自动识别时，在设置中配置 `tiletrace.pythonPath`。
+
+面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
+
+## FlashAttention 示例与交互
+
+下载或克隆本仓库，打开 [examples/flash_attention.py](examples/flash_attention.py) 即可体验完整示例。
 
 示例只保留一个 `flash_attention_forward`，默认参数无需填写 JSON。每个 program 处理 16 个 Q 行，每次循环读取 32 个 K/V 行，head 维度为 32，序列长度为 64。`program_ids` 填 `[1]` 可切换到第二块 Q 行；`{"CAUSAL":false}` 可关闭因果掩码。
 
@@ -45,6 +55,12 @@ code --install-extension .\dist\tiletrace-0.1.8.vsix --force
 输入参数与 `input_shapes` 是 JSON 对象；program IDs 是坐标数组。形状未知时先补充缺失参数。源文件仅被静态读取，不能通过修改示例参数取得执行数值。
 
 ## Codex 接入
+
+使用 Codex 或其他 MCP agent 时，在本仓库目录安装 MCP 服务并生成项目配置：
+
+```powershell
+.\scripts\setup.ps1 -SkipExtension
+```
 
 `setup.ps1` 仅在 `.codex/config.toml` 不存在时生成本项目配置；已有文件会完整保留，请按下方示例手动添加或更新服务。生成的配置包含本机绝对路径，已加入 Git 忽略规则；移动项目后请手动更新路径。脚本不会修改用户级配置。该配置启动本地 STDIO MCP 服务；项目需要受信任，并在新 Codex 会话中加载。官方说明：[Codex MCP](https://learn.chatgpt.com/docs/extend/mcp)。
 
@@ -70,6 +86,8 @@ Windows 路径可使用正斜杠 `/`；若使用反斜杠，请在 TOML 双引�
 独立分析调用不会改变编辑器已发布的上下文。源码变化后上下文会标记为过期；不要基于过期结果作精确解释。
 
 ## 命令行与开发
+
+CLI 与 Python 测试：
 
 ```powershell
 .\.venv\Scripts\python.exe -m tiletrace analyze examples/flash_attention.py --kernel flash_attention_forward
