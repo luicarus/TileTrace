@@ -48,7 +48,6 @@ class Controller implements vscode.Disposable {
     }
     if(this.editor?.document===editor.document){this.editor=editor;return;}
     this.editor=editor;
-    if(this.config.get<boolean>('autoOpen',true))this.createPanel();
     if(this.panel)this.schedule(0);
   }
   open():void {
@@ -63,6 +62,7 @@ class Controller implements vscode.Disposable {
     if(this.panel)return;
     this.session=randomUUID();
     this.panel=vscode.window.createWebviewPanel('tiletrace','TileTrace · 变换',vscode.ViewColumn.Beside,{enableScripts:true,retainContextWhenHidden:true,localResourceRoots:[vscode.Uri.joinPath(this.context.extensionUri,'media')]});
+    this.panel.iconPath={light:vscode.Uri.joinPath(this.context.extensionUri,'media','icons','tiletrace-light.svg'),dark:vscode.Uri.joinPath(this.context.extensionUri,'media','icons','tiletrace-dark.svg')};
     const nonce=randomBytes(18).toString('base64');const webview=this.panel.webview;
     const css=webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri,'media','viewer.css'));
     const js=webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri,'media','viewer.js'));

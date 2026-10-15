@@ -4,9 +4,9 @@
 
 ## 安装与快速开始
 
-在 VS Code 扩展面板的菜单中选择 **Install from VSIX…**，安装 `tiletrace-0.1.8.vsix`；从源码构建方法见下方“从源码开发与打包”。运行时需要 Python 3.10+，无需安装 Triton、NumPy 或使用 GPU。
+在 VS Code 扩展面板的菜单中选择 **Install from VSIX…**，安装 `tiletrace-0.1.10.vsix`；从源码构建方法见下方“从源码开发与打包”。运行时需要 Python 3.10+，无需安装 Triton、NumPy 或使用 GPU。
 
-在工作区中打开带 `@triton.jit` 的已保存 `.py` 文件，扩展默认在右侧打开中文面板。也可运行命令 **TileTrace: 打开变换可视化**。支持常见 `import triton as ...`、`from triton import jit as ...` 装饰器别名；复杂导入形式可能需要改用常见形式。未保存文件、工作区外文件不会建立会话。切到普通 Python 文件会清除当前会话，面板获得焦点时保留对应源码编辑器。
+在工作区中打开带 `@triton.jit` 的已保存 `.py` 文件，再点击编辑器右上角独立的 **TileTrace 矩阵图标**，或运行命令 **TileTrace: 打开变换可视化**，手动打开右侧中文面板。打开、切换或拆分源文件均不会自动创建或调出面板；面板已打开时仍跟随当前源码更新，关闭后需要再次手动打开。工具栏按钮和面板标签使用深浅主题图标，与 VS Code 的拆分编辑器按钮分开。支持常见 `import triton as ...`、`from triton import jit as ...` 装饰器别名；复杂导入形式可能需要改用常见形式。未保存文件、工作区外文件不会建立会话。切到普通 Python 文件会清除当前会话，面板获得焦点时保留对应源码编辑器。
 
 选择 kernel 后即可使用已有默认参数查看。缺少参数时，在“分析参数”中补充 JSON：例如 constexpr `{"BLOCK":8}`、输入形状 `{"x":[2,4]}` 和 program ID `[0]`；输入形状是可选静态信息。查看操作列表、上一步/下一步、代码表达式、输入和输出形状，点击输出格子查询直接输入的来源坐标。选中源码表达式也会同步选中的操作；查看源码按钮跳转至原文件。网格代表逻辑坐标，不代表 GPU 线程、全局内存地址或实际数据值。
 
@@ -29,7 +29,6 @@
 运行时只需要 Python 3.10+，不需要 Triton、NumPy 或 Python MCP SDK。扩展没有 JavaScript 运行时依赖；VSIX 内置本仓库的标准库 Python worker。仅在 VS Code 已信任的工作区启动分析；配置的 Python 可执行文件及工作区 `.venv` 也必须可信。
 
 - `tiletrace.pythonPath`：默认 `python`，优先使用拥有当前文件的工作区 `.venv/Scripts/python.exe`（Linux/macOS 为 `.venv/bin/python`）；也可设置 Python 可执行文件的绝对路径，不添加命令行参数或额外引号。
-- `tiletrace.autoOpen`：是否自动打开相关源文件的面板，默认 true。
 - `tiletrace.sessionDirectory`：默认 `.tiletrace`，相对路径基于拥有当前源文件的工作区。MCP 服务必须使用相同的绝对目录。多根工作区切换时清理旧会话并为新的文件夹启动进程。
 
 独立的分析进程和上下文进程避免耗时分析阻塞 `stale:true` 发布。进程使用 JSON Lines，stderr 写入 **TileTrace** 输出通道。请求约 15 秒超时会终止进程，下一次请求重新启动；可主动运行 **TileTrace: 重启分析进程**。Python 找不到时检查该输出通道并配置可执行路径。
@@ -49,7 +48,7 @@ npm.cmd test
 npm.cmd run package
 ```
 
-`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.8.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
+`package` 会编译 TypeScript，将根目录 `tiletrace/*.py` 复制到生成的 `extension/python/tiletrace/`，输出 `dist/tiletrace-0.1.10.vsix`。不打包虚拟环境、node_modules、tests 或 pycache。必须从完整仓库构建；从 VSIX 安装后不需要可编辑 Python 安装。
 
 开发前先在 `extension/` 安装开发依赖。扩展宿主调试配置由开发者保存在本机 `.vscode/` 中，该目录不纳入版本控制。扩展开发宿主中打开 `examples/` 的 Triton 文件。通过 VS Code 扩展面板的 **Install from VSIX…** 手动安装生成的包。
 

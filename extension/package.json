@@ -2,7 +2,7 @@
   "name": "tiletrace",
   "displayName": "TileTrace",
   "description": "Explain Triton tensor shapes and coordinate provenance statically, without executing kernels.",
-  "version": "0.1.8",
+  "version": "0.1.10",
   "publisher": "tiletrace",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/luicarus/TileTrace.git" },
@@ -14,15 +14,19 @@
   "activationEvents": ["onLanguage:python"],
   "contributes": {
     "commands": [
-      { "command": "tiletrace.open", "title": "TileTrace: 打开变换可视化" },
+      { "command": "tiletrace.open", "title": "TileTrace: 打开变换可视化", "icon": { "light": "media/icons/tiletrace-light.svg", "dark": "media/icons/tiletrace-dark.svg" } },
       { "command": "tiletrace.copyAgentPrompt", "title": "TileTrace: 复制 Agent 提示词" },
       { "command": "tiletrace.restartWorker", "title": "TileTrace: 重启分析进程" }
     ],
+    "menus": {
+      "editor/title": [
+        { "command": "tiletrace.open", "group": "navigation@1" }
+      ]
+    },
     "configuration": {
       "title": "TileTrace",
       "properties": {
         "tiletrace.pythonPath": { "type": "string", "default": "python", "description": "Python 3.10+ 可执行文件；默认优先使用工作区 .venv。" },
-        "tiletrace.autoOpen": { "type": "boolean", "default": true, "description": "激活包含 Triton jit kernel 的 Python 文件时打开面板。" },
         "tiletrace.sessionDirectory": { "type": "string", "default": ".tiletrace", "description": "与 MCP 服务匹配的会话目录，相对路径基于当前文件的工作区。" }
       }
     }
@@ -31,7 +35,7 @@
     "compile": "tsc -p .",
     "test": "npm run compile && node --test tests/*.test.cjs",
     "vscode:prepublish": "npm run compile && node scripts/bundle.cjs",
-    "package": "node scripts/bundle.cjs && vsce package --no-dependencies --allow-missing-repository -o ../dist/tiletrace-0.1.8.vsix"
+    "package": "node scripts/bundle.cjs && vsce package --no-dependencies --allow-missing-repository -o ../dist/tiletrace-0.1.10.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

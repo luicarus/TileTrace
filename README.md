@@ -4,7 +4,7 @@
 
 分析器不执行脚本、不导入 Triton、不启动 kernel；使用 Python 3.10+，无需 GPU。采用 [MIT 许可证](LICENSE)。
 
-> 当前版本：0.1.8。支持本地 VSIX 安装。
+> 当前版本：0.1.10。支持本地 VSIX 安装。
 
 ## 当前功能
 
@@ -23,16 +23,16 @@
 
 ```powershell
 .\scripts\setup.ps1
-code --install-extension .\dist\tiletrace-0.1.8.vsix --force
+code --install-extension .\dist\tiletrace-0.1.10.vsix --force
 ```
 
 已有 VSIX 时，也可以在 VS Code 扩展面板的菜单中选择 **Install from VSIX…** 安装。
 
-安装后打开受信任的工作区及包含 `@triton.jit` kernel 的已保存 `.py` 文件。选中源码表达式，在右侧面板查看输入、输出形状；点击输出坐标查看直接输入来源。
+安装后打开受信任的工作区及包含 `@triton.jit` kernel 的已保存 `.py` 文件，点击右上角的 TileTrace 矩阵图标打开面板。选中源码表达式，查看输入、输出形状；点击输出坐标查看直接输入来源。
 
 扩展自带静态分析 worker，无需安装 Triton、NumPy 或使用 GPU。Python 路径未自动识别时，在设置中配置 `tiletrace.pythonPath`。
 
-面板默认随 Triton 文件打开，也可以通过命令面板运行 **TileTrace: 打开变换可视化**。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
+点击编辑器右上角独立的 **TileTrace 矩阵图标**，或通过命令面板运行 **TileTrace: 打开变换可视化**，手动打开面板。打开、切换或拆分 Triton 文件均不会自动弹出面板；面板已打开时仍跟随当前源码更新，关闭后需要再次手动打开。此图标与 VS Code 的拆分编辑器按钮分开，面板标签也使用相同的矩阵图标。若修改了 Python 路径，使用 **TileTrace: 重启分析进程** 重启分析进程。
 
 ## FlashAttention 示例与交互
 
