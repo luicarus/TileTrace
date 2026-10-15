@@ -3,6 +3,77 @@ const node=(id,shape,inputs=[])=>({id,name:id,op:'reshape',shape,inputs,status:'
 function setup(nodes,configure=()=>{}) {const messages=[];const dom=new JSDOM('<main id="app"></main>',{runScripts:'outside-only'});dom.window.acquireVsCodeApi=()=>({postMessage:m=>messages.push(m),getState:()=>null,setState:()=>{}});configure(dom.window);dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/operations.js'),'utf8'));dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/viewer.js'),'utf8'));const send=data=>dom.window.dispatchEvent(new dom.window.MessageEvent('message',{data}));send({type:'state',state:{analysis:{nodes,kernels:['k'],kernel:'k',diagnostics:[],missing_parameters:[]},selected:nodes[nodes.length-1].id,stale:false,file:'a.py',version:1,parameters:{},input_shapes:{},program_ids:[]}});return {dom,messages,send};}
 const inspectionResponse=(request,output,inspection)=>({type:'inspection',request_id:request.request_id,generation:request.generation,node_id:request.node_id,inspection:{node:output,...inspection}});
 
+test('simple mode is opt-in and compresses only axes above four divisible by four',()=>{
+ for(const [size,expected] of [[1,1],[2,2],[3,3],[4,4],[5,5],[6,6],[8,2],[12,3],[16,4],[20,5],[32,8]]) {
+  const {dom,messages}=setup([node('x',[size])]);const document=dom.window.document;const normal=document.querySelector('.index-grid').outerHTML;
+  const toggle=document.querySelector('[data-role="simple-mode"]');assert.ok(toggle);assert.equal(toggle.checked,false);
+  const count=messages.length;toggle.click();assert.equal(document.querySelectorAll('[data-card-role="output"] .cell').length,expected,String(size));
+  assert.equal(document.querySelector('.pill').textContent,`[${size}]`);assert.equal(messages.length,count);
+  if(size>4&&size%4===0)assert.deepEqual(Array.from(document.querySelectorAll('.group-cell'),cell=>cell.textContent),Array.from({length:expected},(_,i)=>String(i)));
+  document.querySelector('[data-role="simple-mode"]').click();assert.equal(document.querySelector('.index-grid').outerHTML,normal);
+ }
+ for(const size of [9,10]) {const {dom}=setup([node('x',[size])]);const document=dom.window.document;const normal=document.querySelector('.index-grid').outerHTML;document.querySelector('[data-role="simple-mode"]').click();assert.equal(document.querySelector('.index-grid').outerHTML,normal);}
+});
+
+test('simple matrix groups drill down to exact coordinates and highlight containing input groups',()=>{
+ const input=node('in',[16,32]),out=node('out',[16,32],['in']);const {dom,messages,send}=setup([input,out]);const document=dom.window.document;
+ document.querySelector('[data-role="simple-mode"]').click();let card=document.querySelector('[data-card-role="output"]');
+ assert.equal(card.querySelectorAll('.group-cell').length,32);assert.equal(card.querySelector('.pill').textContent,'[16, 32]');
+ assert.deepEqual(Array.from(card.querySelectorAll('.group-cell'),cell=>cell.textContent),Array.from({length:32},(_,i)=>`${Math.floor(i/8)},${i%8}`));
+ assert.deepEqual(Array.from(card.querySelectorAll('thead th')).slice(1).map(th=>th.textContent),['0','1','2','3','4','5','6','7']);
+ assert.deepEqual(Array.from(card.querySelectorAll('tbody tr > th')).map(th=>th.textContent),['0','1','2','3']);
+ const requests=messages.length;card.querySelector('[data-group-start="[4,8]"]').click();assert.equal(messages.length,requests);
+ card=document.querySelector('[data-card-role="output"]');assert.ok(card.querySelector('[data-role="back-to-simple"]'));assert.equal(card.querySelectorAll('[data-index]').length,16);
+ assert.deepEqual(Array.from(card.querySelectorAll('thead th')).slice(1).map(th=>th.textContent),['8','9','10','11']);
+ card.querySelector('[data-index="[7,11]"]').click();const request=messages.at(-1);assert.deepEqual(JSON.parse(JSON.stringify(request.index)),[7,11]);
+ send(inspectionResponse(request,out,{status:'exact',output_index:[7,11],origins:[{node_id:'in',indices:[[7,11]],total:1,truncated:false}]}));
+ assert.ok(document.querySelector('[data-card-role="input"] [data-group-start="[4,8]"].origin'));assert.match(document.querySelector('.mapping').textContent,/覆盖 1 \/ 1/);
+});
+
+test('simple mode switch rejects pending ordinary inspections and preserves focus and reading position',()=>{
+ const input=node('in',[16]),out=node('out',[16],['in']);const {dom,messages,send}=setup([input,out]);const document=dom.window.document;const scroll=scrollModel(dom);
+ document.querySelector('[data-output="true"][data-index="[15]"]').click();const old=messages.at(-1);
+ const toggle=document.querySelector('[data-role="simple-mode"]');toggle.focus();scroll.set(0,420);toggle.click();
+ assert.deepEqual(scroll.position(),[0,420]);assert.equal(document.activeElement.dataset.role,'simple-mode');
+ send(inspectionResponse(old,out,{status:'exact',output_index:[15],origins:[{node_id:'in',indices:[[15]],total:1,truncated:false}]}));
+ assert.equal(document.querySelectorAll('.origin').length,0);assert.equal(document.querySelectorAll('.selected-cell').length,0);
+});
+
+test('simple mode keeps eligible groups reachable after an ordinary window offset and restores that window',()=>{
+ const {dom}=setup([node('x',[16,32])]);const document=dom.window.document;
+ document.querySelector('[data-card-role="output"] [data-role="toggle-grid-window"]').click();
+ const offset=document.querySelector('[data-card-role="output"] input[data-axis="0"]');offset.value='12';offset.dispatchEvent(new dom.window.Event('change'));
+ const normal=document.querySelector('.index-grid').outerHTML;document.querySelector('[data-role="simple-mode"]').click();
+ assert.equal(document.querySelectorAll('[data-card-role="output"] .group-cell').length,32);
+ document.querySelector('[data-role="simple-mode"]').click();assert.equal(document.querySelector('.index-grid').outerHTML,normal);
+});
+
+test('simple group drill-down and return preserve keyboard focus',()=>{
+ const {dom}=setup([node('x',[16,32])]);const document=dom.window.document;document.querySelector('[data-role="simple-mode"]').click();
+ let group=document.querySelector('[data-group-start="[4,8]"]');group.focus();group.click();assert.equal(document.activeElement.dataset.role,'back-to-simple');
+ document.activeElement.click();assert.equal(document.activeElement.dataset.groupStart,'[4,8]');
+});
+
+test('simple mode handles mixed dimensions, real prefix slices and huge shapes without expanding all coordinates',()=>{
+ const mixed=setup([node('x',[16,10])]);mixed.dom.window.document.querySelector('[data-role="simple-mode"]').click();
+ assert.equal(mixed.dom.window.document.querySelectorAll('.group-cell').length,24);assert.ok(mixed.dom.window.document.querySelector('[data-group-start="[12,9]"][data-group-end="[15,9]"]'));
+ const {dom,messages}=setup([node('x',[2,16,32])]);const document=dom.window.document;document.querySelector('[data-role="simple-mode"]').click();
+ const prefix=document.querySelector('input[data-axis="0"]');prefix.value='1';prefix.dispatchEvent(new dom.window.Event('change'));
+ document.querySelector('[data-group-start="[1,4,8]"]').click();document.querySelector('[data-output="true"][data-index="[1,7,11]"]').click();assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).index)),[1,7,11]);
+ const huge=setup([node('x',[1000000,1000000])]);huge.dom.window.document.querySelector('[data-role="simple-mode"]').click();assert.ok(huge.dom.window.document.querySelectorAll('.cell').length<=128);
+ assert.ok(huge.dom.window.document.querySelector('[data-group-start="[999996,999996]"][data-group-end="[999999,999999]"]'));
+});
+
+test('inspection replies preserve focus on the correct input group detail',()=>{
+ const a=node('a',[16]),b=node('b',[16]),out=node('out',[16],['a','b']);const {dom,messages,send}=setup([a,b,out]);const document=dom.window.document;
+ document.querySelector('[data-role="simple-mode"]').click();document.querySelector('[data-card-node="a"] [data-group-start="[0]"]').click();
+ document.querySelector('[data-card-role="output"] [data-group-start="[0]"]').click();document.querySelector('[data-output="true"][data-index="[0]"]').click();const request=messages.at(-1);
+ document.querySelector('[data-card-node="b"] [data-group-start="[0]"]').click();
+ assert.equal(document.activeElement.closest('[data-card-node]').dataset.cardNode,'b');
+ send(inspectionResponse(request,out,{status:'exact',output_index:[0],origins:[{node_id:'a',indices:[[0]],total:1,truncated:false},{node_id:'b',indices:[[0]],total:1,truncated:false}]}));
+ assert.equal(document.activeElement.closest('[data-card-node]').dataset.cardNode,'b');assert.equal(document.activeElement.dataset.role,'back-to-simple');
+});
+
 test('ResizeObserver observes current content only and handles loading without altering selection',()=>{
  let available=600,notify,observed=[];const nodes=[node('in',[8]),node('out',[8],['in'])];
  const {dom,send}=setup(nodes,window=>{
